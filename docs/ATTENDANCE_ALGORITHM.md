@@ -163,6 +163,7 @@ Failed attempts must NOT expose technical security details to the mobile client.
 | `ABSENT` | Student did not attend |
 | `LATE` | Student attended late |
 | `EXCUSED` | Student has an approved excuse |
+| `PENDING_REVIEW` | Assigned on session close (per system_settings) or when risk score = HIGH. Resolvable by teacher via manual attendance. |
 
 ---
 

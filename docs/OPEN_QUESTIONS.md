@@ -16,15 +16,17 @@
 
 The choice is determined by `system_settings`. However, `PENDING_REVIEW` also appears as a risk scoring outcome.
 
-**Are these the same concept or separate?** Specifically:
+**Resolution:** ✅ **RESOLVED during database architecture design (2026-08-29)**
 
-- Is `PENDING_REVIEW` a full attendance state (like `PRESENT`, `ABSENT`, etc.) that should be stored in `attendance_records`?
-- Or is it a temporary review state that resolves into a final attendance state?
-- If it's a full state, what actions are available to resolve it? (e.g., Teacher can change to PRESENT/ABSENT?)
+`PENDING_REVIEW` is a full `attendance_records.status` value. Rationale:
 
-**Impact:** Database schema, attendance state machine, teacher UI
+1. The session-close flow explicitly writes it to student records (per `system_settings`)
+2. The risk scoring outcome `PENDING_REVIEW` maps to the same attendance status
+3. Teachers can resolve it via manual attendance (changing to PRESENT/ABSENT/LATE/EXCUSED)
 
-**Status:** ⏳ Awaiting user clarification
+**Decision recorded in:** `database/docs/TABLES.md`, `database/docs/CONSTRAINTS.md`, `docs/ATTENDANCE_ALGORITHM.md`
+
+**Status:** ✅ Resolved — no blocking ambiguity
 
 ---
 

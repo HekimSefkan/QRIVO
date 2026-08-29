@@ -11,16 +11,17 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 
 ### Added
 
-- `docs/PROJECT_SPECIFICATION.md` — complete project requirements extracted from original specification
-- `docs/ARCHITECTURE_RULES.md` — locked architecture decisions with change protocol
-- `docs/ATTENDANCE_ALGORITHM.md` — authoritative attendance algorithm (session → QR → challenge → transaction)
-- `docs/SECURITY_RULES.md` — security requirements covering auth, authz, QR, challenge, risk, audit
-- `docs/DEVELOPMENT_PLAN.md` — 24-phase implementation plan with commit conventions
-- `docs/OPEN_QUESTIONS.md` — 10 genuinely ambiguous requirements awaiting clarification
-- `ORIGINAL_SPECIFICATION.md` added to project as primary source of truth
-- Project governance file (`AGENTS.md`) — mandatory rules for all AI coding agents
-- `.gitignore` — comprehensive ignore rules for secrets, dependencies, build artifacts, IDE files, and OS files
-- `.env.example` — environment variable template (no real secrets)
-- `README.md` — project overview, components, security architecture, and development status
-- `CHANGELOG.md` — this file
-- Git repository initialized with GitHub remote
+- `docs/ARCHITECTURE_FREEZE.md` — frozen component catalogue with responsibilities, inputs, outputs, dependencies, and security boundaries for all 15 major components; lists 14 decisions that must not change during implementation
+- `database/docs/ER_DIAGRAM.md` — complete Mermaid ER diagram for all 31 tables across 8 domain groups
+- `database/docs/TABLES.md` — full column definitions, types, nullability, keys and indexes for all 31 tables
+- `database/docs/RELATIONSHIPS.md` — complete cardinality documentation and attendance algorithm lookup path
+- `database/docs/INDEXES.md` — all indexes with priority ratings and algorithm-backed justifications
+- `database/docs/CONSTRAINTS.md` — 26 uniqueness constraints, 53 foreign keys with ON DELETE policies, ENUM values, transaction boundaries
+- `database/docs/DATABASE_DECISIONS.md` — 13 explicit design decisions each tied to a specification requirement
+
+### Changed
+
+- `docs/ATTENDANCE_ALGORITHM.md` — added `PENDING_REVIEW` to attendance states table (OQ-001 resolution)
+- `docs/OPEN_QUESTIONS.md` — OQ-001 resolved: `PENDING_REVIEW` is a full `attendance_records.status` value
+
+
