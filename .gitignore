@@ -1,0 +1,141 @@
+# ====================================
+# QRIVO — .gitignore
+# ====================================
+
+# ------------------------------------
+# Secrets & Environment
+# ------------------------------------
+.env
+.env.local
+.env.development
+.env.development.local
+.env.test
+.env.test.local
+.env.production
+.env.production.local
+.env.staging
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.der
+*.jks
+*.keystore
+secrets/
+credentials/
+
+# ------------------------------------
+# API Keys & Tokens (loose files)
+# ------------------------------------
+*secret*
+*credential*
+!.env.example
+!**/docs/**
+
+# ------------------------------------
+# Dependencies
+# ------------------------------------
+node_modules/
+.pnp/
+.pnp.js
+.yarn/install-state.gz
+
+# ------------------------------------
+# Build Artifacts
+# ------------------------------------
+dist/
+build/
+out/
+.output/
+.next/
+.nuxt/
+.cache/
+*.tsbuildinfo
+
+# ------------------------------------
+# Test & Coverage
+# ------------------------------------
+coverage/
+.nyc_output/
+test-results/
+junit.xml
+
+# ------------------------------------
+# Database (local dev)
+# ------------------------------------
+*.sqlite
+*.sqlite3
+*.db
+*.sql.bak
+pgdata/
+data/
+
+# ------------------------------------
+# IDE & Editor
+# ------------------------------------
+.vscode/settings.json
+.vscode/launch.json
+.vscode/*.code-workspace
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.swp
+*.swo
+*~
+
+# ------------------------------------
+# OS Temporary Files
+# ------------------------------------
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# ------------------------------------
+# Logs
+# ------------------------------------
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ------------------------------------
+# Generated Files
+# ------------------------------------
+*.generated.*
+*.min.js
+*.min.css
+*.map
+*.bundle.js
+
+# ------------------------------------
+# Mobile (React Native / Expo)
+# ------------------------------------
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+ios/Pods/
+ios/build/
+*.apk
+*.aab
+*.ipa
+*.dSYM.zip
+*.dSYM
+.expo/
+expo-env.d.ts
+
+# ------------------------------------
+# Docker (local volumes)
+# ------------------------------------
+docker-compose.override.yml
+.docker/
