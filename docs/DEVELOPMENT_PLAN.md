@@ -25,14 +25,16 @@
 | 13 — Teacher Live Attendance | ✅ Complete (backend) | `adbcebf` |
 | 14 — Manual Attendance | ✅ Complete | `abe191c` |
 | 15 — Session Close/Cancel | ⏭️ Deferred — skipped for now, still pending | — |
-| 16 — Mobile Application Foundation | ✅ Complete | `feat(mobile): initialize QRIVO mobile application` |
-| 17–23 | ⛔ Not started | — |
+| 16 — Mobile Application Foundation | ✅ Complete | `abe191c` |
+| 17 — Mobile QR Attendance | ✅ Complete | `feat(mobile): implement QRIVO QR attendance flow` |
+| 18–23 | ⛔ Not started | — |
 
-**Test status at Phase 16:** backend 415 tests, 924 assertions, 100% passing
-(`backend/`). Mobile: 7 Dart test files authored under `mobile/test/`; the Flutter
-SDK is not available on the development machine, so `flutter test` runs in CI / on
-a developer workstation (see AD-011). The backend endpoints the mobile client
-consumes are covered by the PHPUnit suite.
+**Test status at Phase 17:** backend 415 tests, 924 assertions, 100% passing
+(`backend/`) — Phase 17 is mobile-only and adds no backend code (the student
+attendance endpoints were built and tested in Phases 11–12). Mobile: 10 Dart
+test files under `mobile/test/`; the Flutter SDK is not available on the
+development machine, so `flutter test` runs in CI / on a developer workstation
+(see AD-011). The camera integration is smoke-tested on a device.
 
 ### Migration strategy note (deviation AD-001)
 
@@ -60,7 +62,9 @@ wire format; QR TTL config — interim OQ-008), AD-009 (per-student QR-nonce rep
 basic Phase-12 risk evaluator; challenge TTL config), AD-010 (live attendance =
 AJAX polling; WebSocket deferred — no WS server in the frozen stack), AD-011
 (mobile project hand-scaffolded; generated platform folders gitignored; Flutter
-tests authored but run in CI). `ORIGINAL_SPECIFICATION.md` remains unchanged.
+tests authored but run in CI), AD-012 (`mobile_scanner` for camera/QR decode;
+local `qrivo.` prefix sniff is a UX filter, not a security check).
+`ORIGINAL_SPECIFICATION.md` remains unchanged.
 
 ---
 
@@ -469,12 +473,35 @@ project; platform folders gitignored; `flutter test` runs in CI, not locally).
 
 ---
 
-## Phase 17: Mobile QR Attendance
+## Phase 17: Mobile QR Attendance — ✅ COMPLETE
 
-- [ ] QR scanner
-- [ ] QR → Challenge → Verification → Result flow
-- [ ] Error handling for all failure states
-- [ ] Network error handling
+Mobile-only. No backend change — the student attendance endpoints
+(`POST /api/v1/student/attendance/{qr/verify,challenge,verify}`) were built and
+tested in Phases 11–12; this phase is the client that drives them.
+
+- [x] QR scanner — `features/attendance/qr_scanner_screen.dart` (`mobile_scanner`,
+      QR-only, torch, denied/unavailable-camera handling). Camera code is isolated
+      from the flow logic.
+- [x] scan → QR validation → challenge → challenge response → server verification
+      → attendance result — `QrAttendanceController` (`ChangeNotifier`, camera-free)
+      runs the steps in the exact order of `ATTENDANCE_ALGORITHM.md §4`:
+      preflight `POST /qr/verify` (non-consuming) → `POST /challenge` →
+      `POST /verify` (echoes the server nonce back with the scanned QR).
+- [x] Error handling for all defined failure states — every
+      `ATTENDANCE_ALGORITHM.md §4/§9` failure maps to a `QrFailureKind` for
+      presentation only (icon + retry-vs-final). The server's generic message is
+      shown verbatim; the app infers no security specifics: expired QR, tampered
+      (bad signature), session unavailable/closed, not enrolled, QR/challenge
+      replay, challenge expired, rate-limited, risk-blocked, re-auth, duplicate.
+- [x] Network error handling — transport failures surface as a retryable
+      "couldn't reach the server" state; `ApiClient`'s one-shot 401→refresh→retry
+      still applies underneath.
+- [x] **No security decision on the device.** The only local logic is a `qrivo.`
+      prefix sniff so an unrelated barcode doesn't hit the attendance API; the
+      server re-validates everything it accepts. See AD-012.
+- [x] Tests: `features/qr_attendance_controller_test.dart` (happy path + each
+      failure state + concurrency), `features/attendance_result_sheet_test.dart`,
+      `core/attendance_models_test.dart`.
 
 **Commit:** `feat(mobile): implement QRIVO QR attendance flow`
 

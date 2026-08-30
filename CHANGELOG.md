@@ -9,6 +9,43 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 
 ## [Unreleased]
 
+### Added (Mobile QR Attendance — Phase 17)
+
+Mobile-only. **No backend change** — the student attendance endpoints
+(`POST /api/v1/student/attendance/{qr/verify,challenge,verify}`) were built and
+tested in Phases 11–12.
+
+**`mobile/lib/features/attendance/`**
+
+- `QrAttendanceController` (`ChangeNotifier`, camera-free) runs
+  `ATTENDANCE_ALGORITHM.md §4` in order:
+  `validating` (preflight `POST /qr/verify`, non-consuming) → `challenging`
+  (`POST /challenge`) → `verifying` (`POST /verify` — the server's nonce echoed
+  back with the scanned QR) → `success` / `failure`.
+- `qr_scanner_screen.dart` — `mobile_scanner` camera (QR only), torch,
+  reticle, and a graceful denied/unavailable-camera state. Camera code is fully
+  isolated from the flow logic.
+- `attendance_result_sheet.dart` — progress view → PRESENT / PENDING_REVIEW
+  result → mapped failure with retry-vs-final affordance.
+- `attendance_failure.dart` — `QrFailureKind` covering every defined failure
+  state (expired QR, tampered/bad-signature, session unavailable/closed, not
+  enrolled, QR/challenge replay, challenge expired, rate-limited, risk-blocked,
+  re-auth required, duplicate) **and** network errors. Classification is
+  presentation-only; the server's generic message is shown verbatim.
+- `home_shell.dart` gains an always-present "Scan" action.
+
+**`mobile/lib/core/`** — `StudentApi.preflightQr / requestChallenge /
+submitAttendance`; models `QrPreflight`, `AttendanceChallenge`, `AttendanceResult`.
+
+**No security decision on the device.** The only local logic is a `qrivo.`
+prefix sniff so an unrelated barcode doesn't hit the attendance API; the server
+re-validates everything it accepts (**AD-012**).
+
+Deps: `mobile_scanner: ^5.2.3`. Tests:
+`features/qr_attendance_controller_test.dart` (happy path + every failure state +
+concurrency), `features/attendance_result_sheet_test.dart`,
+`core/attendance_models_test.dart`. `ORIGINAL_SPECIFICATION.md` unchanged.
+
 ### Added (Mobile Application Foundation — Phase 16)
 
 **Backend — student self-service** (no migration; read-only over existing tables):

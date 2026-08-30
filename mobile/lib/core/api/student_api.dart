@@ -1,4 +1,7 @@
+import '../models/attendance_challenge.dart';
 import '../models/attendance_entry.dart';
+import '../models/attendance_result.dart';
+import '../models/qr_preflight.dart';
 import '../models/schedule_entry.dart';
 import '../models/student_profile.dart';
 import 'api_client.dart';
@@ -65,6 +68,41 @@ class StudentApi {
       totalPages: (meta['total_pages'] as num?)?.toInt() ?? 1,
       total: (meta['total'] as num?)?.toInt() ?? 0,
     );
+  }
+
+  // ─── QR attendance (ATTENDANCE_ALGORITHM.md §4) ─────────────────────────────
+  //
+  // Every check is server-side. These three calls just move the scanned QR
+  // string and the server-issued challenge across the wire.
+
+  /// Non-consuming preflight: "is this scanned code currently usable?"
+  Future<QrPreflight> preflightQr(String qr, {String? sessionUuid}) async {
+    final res = await _client.post('/student/attendance/qr/verify', body: {
+      'qr': qr,
+      if (sessionUuid != null && sessionUuid.isNotEmpty) 'session_id': sessionUuid,
+    });
+    return QrPreflight.fromJson(res.object);
+  }
+
+  /// Ask the backend for a challenge bound to this student + scanned QR.
+  Future<AttendanceChallenge> requestChallenge(String qr) async {
+    final res = await _client.post('/student/attendance/challenge', body: {'qr': qr});
+    return AttendanceChallenge.fromJson(res.object);
+  }
+
+  /// Submit the challenge response + verification request. On success the server
+  /// has recorded attendance inside its transaction.
+  Future<AttendanceResult> submitAttendance({
+    required String challengeId,
+    required String nonce,
+    required String qr,
+  }) async {
+    final res = await _client.post('/student/attendance/verify', body: {
+      'challenge_id': challengeId,
+      'nonce': nonce,
+      'qr': qr,
+    });
+    return AttendanceResult.fromJson(res.object);
   }
 
   Future<Dashboard> dashboard() async {
