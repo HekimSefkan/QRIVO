@@ -23,11 +23,16 @@
 | 11 — Dynamic QR System | ✅ Complete | `9cb3ba1` |
 | 12 — Challenge-Response Attendance | ✅ Complete | `a512561` |
 | 13 — Teacher Live Attendance | ✅ Complete (backend) | `adbcebf` |
-| 14 — Manual Attendance | ✅ Complete | `feat(attendance): implement QRIVO manual attendance` |
-| 15 — Session Close/Cancel | ⏭️ Next | — |
-| 16–23 | ⛔ Not started | — |
+| 14 — Manual Attendance | ✅ Complete | `abe191c` |
+| 15 — Session Close/Cancel | ⏭️ Deferred — skipped for now, still pending | — |
+| 16 — Mobile Application Foundation | ✅ Complete | `feat(mobile): initialize QRIVO mobile application` |
+| 17–23 | ⛔ Not started | — |
 
-**Test status at Phase 14:** 404 tests, 880 assertions, 100% passing (`backend/`).
+**Test status at Phase 16:** backend 415 tests, 924 assertions, 100% passing
+(`backend/`). Mobile: 7 Dart test files authored under `mobile/test/`; the Flutter
+SDK is not available on the development machine, so `flutter test` runs in CI / on
+a developer workstation (see AD-011). The backend endpoints the mobile client
+consumes are covered by the PHPUnit suite.
 
 ### Migration strategy note (deviation AD-001)
 
@@ -53,8 +58,9 @@ AD-007 (session `end_time` NULL until close; `expires_at` = scheduled meeting
 end; duplicate-active-session scope), AD-008 (`qr_used_nonces` nonce store; QR
 wire format; QR TTL config — interim OQ-008), AD-009 (per-student QR-nonce replay;
 basic Phase-12 risk evaluator; challenge TTL config), AD-010 (live attendance =
-AJAX polling; WebSocket deferred — no WS server in the frozen stack).
-`ORIGINAL_SPECIFICATION.md` remains unchanged.
+AJAX polling; WebSocket deferred — no WS server in the frozen stack), AD-011
+(mobile project hand-scaffolded; generated platform folders gitignored; Flutter
+tests authored but run in CI). `ORIGINAL_SPECIFICATION.md` remains unchanged.
 
 ---
 
@@ -407,7 +413,10 @@ Permission names are derived from PROJECT_SPECIFICATION.md §6.
 
 ---
 
-## Phase 15: Session Close/Cancel
+## Phase 15: Session Close/Cancel — ⏭️ DEFERRED (still pending)
+
+Skipped in the current sequence at the user's direction. No code exists yet; it
+remains an open phase and should be picked up before Phase 20 (audit) closes.
 
 - [ ] `POST /api/v1/teacher/attendance/{id}/close`
 - [ ] ACTIVE → CLOSED flow
@@ -419,12 +428,42 @@ Permission names are derived from PROJECT_SPECIFICATION.md §6.
 
 ---
 
-## Phase 16: Mobile Application Foundation
+## Phase 16: Mobile Application Foundation — ✅ COMPLETE
 
-- [ ] Flutter project structure
-- [ ] API client, environment config
-- [ ] Authentication with secure token storage
-- [ ] Student Dashboard, Profile, Schedule, Attendance History
+Backend (student self-service, consumed by the mobile client):
+
+- [x] `Infrastructure/Repository/StudentSelfRepository` — read-only, keyed by
+      `students.id`; profile, schedule (own class meetings), attendance history
+      (paginated), attendance summary
+- [x] `Application/Service/Student/StudentSelfService` — resolves the caller's
+      student id via `RelationshipRepository`; rejects non-students (403);
+      dashboard aggregation (profile + today's schedule + summary + recent)
+- [x] `Presentation/Http/Controller/Student/SelfController` — permission-gated
+      (`PROFILE_SELF_VIEW`, `SCHEDULE_SELF_VIEW`, `ATTENDANCE_HISTORY_SELF_VIEW`)
+- [x] Routes: `GET /api/v1/student/{dashboard,profile,schedule}`,
+      `GET /api/v1/student/attendance/history`
+- [x] Tests: `StudentSelfServiceTest` (own-data only, pagination order, non-student
+      rejection, dashboard), `StudentSelfRoutesTest` (student 200 / unauthenticated
+      401 / teacher 403 / admin-without-self-perms 403 on all four)
+
+Mobile (`mobile/`, Flutter):
+
+- [x] Project structure — `core/{config,api,auth,models}`, `features/*`, `widgets/`
+- [x] `ApiClient` — `/api/v1` base, bearer header, envelope unwrap, 401→refresh→retry
+      once, `ApiException` mapping; config via `--dart-define=QRIVO_API_BASE_URL`
+- [x] Authentication — `AuthRepository` (bare client, no recursion), `AuthController`
+      (`ChangeNotifier`: bootstrap/validate, sign in/out, single-flight refresh),
+      `SecureSessionStore` (Keychain / EncryptedSharedPreferences, one JSON blob)
+- [x] Student Dashboard, Profile, Schedule, Attendance History screens + bottom-nav
+      shell (no QR tab — Phase 17)
+- [x] Tests: 7 Dart test files under `mobile/test/` — see `mobile/README.md`
+
+**No client-side security logic** — the backend remains authoritative
+(SECURITY_RULES.md). The QR scanner is deliberately out of scope (Phase 17,
+`PROJECT_SPECIFICATION §6.11`).
+
+See [`ACCEPTED_DEVIATIONS.md`](ACCEPTED_DEVIATIONS.md) AD-011 (hand-scaffolded
+project; platform folders gitignored; `flutter test` runs in CI, not locally).
 
 **Commit:** `feat(mobile): initialize QRIVO mobile application`
 

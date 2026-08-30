@@ -156,6 +156,10 @@ All endpoints are versioned under `/api/v1/`.
 | `POST` | `/api/v1/auth/logout` | Bearer        | Logout / token invalidation |
 | `POST` | `/api/v1/auth/refresh`| refresh token | Rotate tokens (reuse detection) |
 | `GET`  | `/api/v1/auth/me`     | Bearer        | Authenticated caller's identity + roles |
+| `GET`  | `/api/v1/student/dashboard`          | Bearer (student) | Profile + today's schedule + attendance summary |
+| `GET`  | `/api/v1/student/profile`           | Bearer (student) | Caller's own student profile |
+| `GET`  | `/api/v1/student/schedule`          | Bearer (student) | Caller's own weekly class meetings |
+| `GET`  | `/api/v1/student/attendance/history`| Bearer (student) | Caller's own attendance records (paginated) |
 
 **Academic structure (admin — `academic.*.manage`, ADMIN / SUPER_ADMIN):**
 standard REST (`GET` list, `POST` create, `GET`/`PATCH`/`DELETE` `/{id}`) under
@@ -215,6 +219,15 @@ re-fetch `.../live/students` (`?search=`, `?status=`, `?updated_since=`) when
 `students_version` changes (AJAX polling — the spec's fallback). Session
 ownership is re-checked on **every** request; only that session's students are
 returned; `session_secret` is never exposed.
+
+**Student self-service (Phase 16 — consumed by the mobile app):**
+`GET /api/v1/student/profile` (`profile.self.view`), `GET /api/v1/student/schedule`
+(`schedule.self.view`), `GET /api/v1/student/attendance/history`
+(`attendance.history.self.view`, paginated), and `GET /api/v1/student/dashboard`
+(profile + today's schedule + attendance summary + recent records). Every response
+is scoped to the caller's own `students` row — the student id is resolved
+server-side from the token, never taken from the request. Teachers and admins
+without the self-view permissions receive 403.
 
 List endpoints accept `?page`, `?per_page`, `?search`, and id filters
 (e.g. `?school_id=`, `?academic_term_id=`). Responses are paginated with a `meta` block.
@@ -319,7 +332,8 @@ This backend is being built incrementally:
 - [x] Phase 12 — Challenge-Response Attendance
 - [x] Phase 13 — Teacher Live Attendance
 - [x] Phase 14 — Manual Attendance
-- [ ] Phase 15 — Session Close / Cancel
+- [ ] Phase 15 — Session Close / Cancel *(deferred — skipped for now)*
+- [x] Phase 16 — Mobile Application Foundation *(backend: student self-service)*
 - [ ] ...
 
 See [`docs/PROJECT_SPECIFICATION.md`](../docs/PROJECT_SPECIFICATION.md) for the full phase list.
