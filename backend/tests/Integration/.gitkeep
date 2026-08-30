@@ -1,0 +1,13 @@
+<?php
+
+declare(strict_types=1);
+
+namespace QRIVO\Tests\Integration;
+
+// Integration tests require a live MySQL database.
+// They will be implemented in subsequent phases as the database schema is established.
+//
+// To run integration tests:
+//   vendor/bin/phpunit --testsuite Integration
+//
+// Ensure your .env.testing file is configured with test database credentials.

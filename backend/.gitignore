@@ -1,0 +1,25 @@
+# QRIVO Backend — .gitignore
+
+# PHP dependencies — always excluded; use `composer install` to restore
+/vendor/
+
+# Sensitive environment files — NEVER commit real .env
+.env
+.env.testing
+.env.local
+.env.*.local
+
+# Application logs — auto-generated at runtime
+/storage/logs/
+
+# PHPUnit cache and result files
+.phpunit.result.cache
+.phpunit.cache/
+
+# Code coverage reports
+/coverage/
+
+# IDE files
+.idea/
+.vscode/
+*.iml
