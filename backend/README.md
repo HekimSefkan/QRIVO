@@ -41,22 +41,23 @@ backend/
 │   ├── Domain/
 │   │   ├── Authorization/  # RolePermissionMap — canonical role → permission map
 │   │   ├── Contract/       # Interfaces: RepositoryInterface, PolicyInterface, ServiceInterface, LoggerInterface
-│   │   ├── Entity/         # User, DeviceSession, Entity/Academic/* (11 structural entities)
+│   │   ├── Attendance/     # AttendanceEligibility value object
+│   │   ├── Entity/         # User, DeviceSession, Entity/Academic/* (11), Entity/Schedule/* (6)
 │   │   ├── Enum/           # UserRole, Permission, AttendanceStatus, SessionStatus, SecurityEventType
 │   │   └── Exception/      # Domain exceptions: Unauthorized, Forbidden, NotFound, Conflict, Validation, ...
 │   ├── Application/
 │   │   ├── DTO/            # Base + Auth DTOs
 │   │   ├── Policy/         # SelfOwnedResourcePolicy, AttendanceAuthorizationPolicy
-│   │   ├── Service/        # Auth*, Authorization*, Security*, Service/Academic/* (11 CRUD services)
+│   │   ├── Service/        # Auth*, Authorization*, AttendanceEligibility*, Service/Academic/* (11), Service/Schedule/* (6)
 │   │   └── Validation/     # Validator — input validation rules engine
 │   ├── Infrastructure/
 │   │   ├── Config/         # Config — dot-notation config loader from PHP files + ENV
 │   │   ├── Database/       # Connection — lazy PDO wrapper with transaction helpers
 │   │   ├── Logging/        # Logger — Monolog wrapper with sensitive key redaction
-│   │   └── Repository/     # BaseRepository, AbstractCrudRepository, ReferenceRepository, Repository/Academic/*
+│   │   └── Repository/     # BaseRepository, AbstractCrudRepository, ReferenceRepository, ScheduleRepository, Repository/{Academic,Schedule}/*
 │   └── Presentation/
 │       └── Http/
-│           ├── Controller/        # HealthController, Auth/AuthController, Admin/* (11 resource controllers)
+│           ├── Controller/        # Health, Auth/*, Admin/* (16 resource controllers), Teacher/AttendanceEligibilityController
 │           ├── Middleware/        # Cors, JsonBody, Auth, Authorization, MiddlewarePipeline
 │           ├── Response/          # JsonResponse — standard API envelope
 │           ├── BaseController.php
@@ -160,8 +161,18 @@ standard REST (`GET` list, `POST` create, `GET`/`PATCH`/`DELETE` `/{id}`) under
 `/api/v1/admin/{schools, faculties, departments, programs, rooms, courses,
 academic-years, academic-terms, classes, teachers, students}`
 
-List endpoints accept `?page`, `?per_page`, `?search`, and parent-id filters
-(e.g. `?school_id=`). Responses are paginated with a `meta` block.
+**Course assignments & scheduling (admin — `assignment.course.manage` /
+`assignment.schedule.manage`):** same REST shape under `/api/v1/admin/{class-courses,
+teacher-courses, teacher-class-assignments, student-class-assignments,
+course-schedules}`. `student-courses` is `GET`-only (derived, DD-005).
+
+**Attendance eligibility (teacher — `attendance.session.start`):**
+`GET /api/v1/teacher/attendance/eligibility?class_id=&course_id=&academic_term_id=&at=`
+— server-side check of whether the caller may open attendance for that
+course/class/time, and in which room. Creates nothing.
+
+List endpoints accept `?page`, `?per_page`, `?search`, and id filters
+(e.g. `?school_id=`, `?academic_term_id=`). Responses are paginated with a `meta` block.
 
 Authorization is enforced server-side via `AuthorizationService` (role,
 permission, ownership, relationship) and `AuthorizationMiddleware` /
@@ -257,10 +268,9 @@ This backend is being built incrementally:
 - [x] Phase 6 — Authentication
 - [x] Phase 7 — RBAC + Authorization
 - [x] Phase 8 — Admin & Academic Structure
-- [ ] Phase 9 — Course/Teacher/Student Assignments
-- [ ] Phase 10 — Course Schedule
-- [ ] Phase 11 — Attendance Session
-- [ ] Phase 12 — Dynamic QR
+- [x] Phase 9 — Course/Teacher/Student Assignments + Schedule
+- [ ] Phase 10 — Attendance Session
+- [ ] Phase 11 — Dynamic QR
 - [ ] ...
 
 See [`docs/PROJECT_SPECIFICATION.md`](../docs/PROJECT_SPECIFICATION.md) for the full phase list.

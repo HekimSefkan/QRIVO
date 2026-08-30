@@ -26,6 +26,7 @@ use QRIVO\Domain\Exception\ValidationException;
  * - in:a,b,c
  * - uuid
  * - date            (ISO calendar date, YYYY-MM-DD)
+ * - time            (24h clock, HH:MM or HH:MM:SS)
  * - integer_range:min,max
  */
 final class Validator
@@ -147,6 +148,14 @@ final class Validator
                     if ($d === false || $d->format('Y-m-d') !== (string) $value) {
                         $this->addError($field, 'The ' . $field . ' field must be a valid date (YYYY-MM-DD).');
                     }
+                }
+                break;
+
+            case 'time':
+                if ($value !== null && $value !== ''
+                    && !preg_match('/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/', (string) $value)
+                ) {
+                    $this->addError($field, 'The ' . $field . ' field must be a valid 24-hour time (HH:MM).');
                 }
                 break;
 

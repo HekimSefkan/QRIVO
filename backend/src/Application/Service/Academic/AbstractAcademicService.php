@@ -131,6 +131,16 @@ abstract class AbstractAcademicService extends BaseService
     {
     }
 
+    /**
+     * Hook run inside delete(), after the row is removed.
+     *
+     * @param array<string, mixed> $existing the row as it was before deletion
+     * @param array<string, mixed> $actor
+     */
+    protected function afterDelete(int $id, array $existing, array $actor): void
+    {
+    }
+
     // ─── Public API ────────────────────────────────────────────────────────────
 
     /**
@@ -278,6 +288,8 @@ abstract class AbstractAcademicService extends BaseService
         } else {
             $this->repo->hardDelete($id);
         }
+
+        $this->afterDelete($id, $existing, $actor);
 
         $this->audit->recordAuditLog(
             strtoupper($this->entityName()) . '_DELETED',

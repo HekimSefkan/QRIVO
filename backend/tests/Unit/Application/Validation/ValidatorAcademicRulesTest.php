@@ -56,4 +56,28 @@ final class ValidatorAcademicRulesTest extends TestCase
         $this->expectException(ValidationException::class);
         (new Validator())->validate(['n' => 'abc'], ['n' => 'integer_range:1,10']);
     }
+
+    #[DataProvider('goodTimes')]
+    public function test_time_rule_accepts_valid(string $value): void
+    {
+        (new Validator())->validate(['t' => $value], ['t' => 'required|time']);
+        $this->addToAssertionCount(1);
+    }
+
+    public static function goodTimes(): array
+    {
+        return [['09:00'], ['09:00:00'], ['23:59'], ['00:00:00']];
+    }
+
+    #[DataProvider('badTimes')]
+    public function test_time_rule_rejects_invalid(string $value): void
+    {
+        $this->expectException(ValidationException::class);
+        (new Validator())->validate(['t' => $value], ['t' => 'time']);
+    }
+
+    public static function badTimes(): array
+    {
+        return [['24:00'], ['9:00'], ['09:60'], ['noon'], ['09-00']];
+    }
 }

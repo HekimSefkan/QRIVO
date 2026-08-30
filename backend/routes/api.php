@@ -14,16 +14,23 @@ declare(strict_types=1);
 use QRIVO\Presentation\Http\Controller\Admin\AcademicTermController;
 use QRIVO\Presentation\Http\Controller\Admin\AcademicYearController;
 use QRIVO\Presentation\Http\Controller\Admin\ClassController;
+use QRIVO\Presentation\Http\Controller\Admin\ClassCourseController;
 use QRIVO\Presentation\Http\Controller\Admin\CourseController;
+use QRIVO\Presentation\Http\Controller\Admin\CourseScheduleController;
 use QRIVO\Presentation\Http\Controller\Admin\DepartmentController;
 use QRIVO\Presentation\Http\Controller\Admin\FacultyController;
 use QRIVO\Presentation\Http\Controller\Admin\ProgramController;
 use QRIVO\Presentation\Http\Controller\Admin\RoomController;
 use QRIVO\Presentation\Http\Controller\Admin\SchoolController;
+use QRIVO\Presentation\Http\Controller\Admin\StudentClassAssignmentController;
 use QRIVO\Presentation\Http\Controller\Admin\StudentController;
+use QRIVO\Presentation\Http\Controller\Admin\StudentCourseController;
+use QRIVO\Presentation\Http\Controller\Admin\TeacherClassAssignmentController;
 use QRIVO\Presentation\Http\Controller\Admin\TeacherController;
+use QRIVO\Presentation\Http\Controller\Admin\TeacherCourseController;
 use QRIVO\Presentation\Http\Controller\Auth\AuthController;
 use QRIVO\Presentation\Http\Controller\HealthController;
+use QRIVO\Presentation\Http\Controller\Teacher\AttendanceEligibilityController;
 
 // ─── Health ──────────────────────────────────────────────────────────────────
 $r->addRoute('GET', '/api/v1/health', [HealthController::class, 'check']);
@@ -60,6 +67,24 @@ $resource('/api/v1/admin/academic-terms',  AcademicTermController::class);
 $resource('/api/v1/admin/classes',         ClassController::class);
 $resource('/api/v1/admin/teachers',        TeacherController::class);
 $resource('/api/v1/admin/students',        StudentController::class);
+
+// ─── Course assignments & scheduling (Phase 9 — admin only) ───────────────
+// `assignment.course.manage` for the assignment tables, `assignment.schedule.manage`
+// for course_schedules.
+$resource('/api/v1/admin/class-courses',              ClassCourseController::class);
+$resource('/api/v1/admin/teacher-courses',            TeacherCourseController::class);
+$resource('/api/v1/admin/teacher-class-assignments',  TeacherClassAssignmentController::class);
+$resource('/api/v1/admin/student-class-assignments',  StudentClassAssignmentController::class);
+$resource('/api/v1/admin/course-schedules',           CourseScheduleController::class);
+
+// student_courses is derived (DD-005) — read-only.
+$r->addRoute('GET', '/api/v1/admin/student-courses',           [StudentCourseController::class, 'index']);
+$r->addRoute('GET', '/api/v1/admin/student-courses/{id:\d+}',  [StudentCourseController::class, 'show']);
+
+// ─── Attendance eligibility (Phase 9 — teacher) ──────────────────────────
+// "May this teacher open attendance for course/class at this time?" — the
+// server-side authorization determination. No session is created, no QR issued.
+$r->addRoute('GET', '/api/v1/teacher/attendance/eligibility', [AttendanceEligibilityController::class, 'check']);
 
 // ─── Teacher Attendance (Phases 10–15) ───────────────────────────────────
 // $r->addRoute('POST',  '/api/v1/teacher/attendance/start',                        [AttendanceController::class, 'start']);
