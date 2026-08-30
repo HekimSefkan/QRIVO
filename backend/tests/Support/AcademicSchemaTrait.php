@@ -209,6 +209,22 @@ trait AcademicSchemaTrait
                 nonce TEXT NOT NULL UNIQUE, consumed_at TEXT NOT NULL, created_at TEXT NOT NULL,
                 FOREIGN KEY (attendance_session_id) REFERENCES attendance_sessions(id) ON DELETE RESTRICT
             );
+            CREATE TABLE qr_challenges (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, uuid TEXT NOT NULL UNIQUE,
+                attendance_session_id INTEGER NOT NULL, student_id INTEGER NOT NULL,
+                nonce TEXT NOT NULL UNIQUE, qr_nonce TEXT NOT NULL, expires_at TEXT NOT NULL,
+                used_at TEXT, created_at TEXT NOT NULL,
+                FOREIGN KEY (attendance_session_id) REFERENCES attendance_sessions(id) ON DELETE RESTRICT,
+                FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE RESTRICT
+            );
+            CREATE TABLE risk_assessments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, qr_challenge_id INTEGER NOT NULL, student_id INTEGER NOT NULL,
+                attendance_session_id INTEGER NOT NULL, risk_level TEXT NOT NULL, risk_score INTEGER NOT NULL DEFAULT 0,
+                signals TEXT, outcome TEXT NOT NULL, created_at TEXT NOT NULL,
+                FOREIGN KEY (qr_challenge_id) REFERENCES qr_challenges(id) ON DELETE RESTRICT,
+                FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE RESTRICT,
+                FOREIGN KEY (attendance_session_id) REFERENCES attendance_sessions(id) ON DELETE RESTRICT
+            );
         SQL);
 
         // Seed roles/permissions from the canonical map.
@@ -451,10 +467,52 @@ trait AcademicSchemaTrait
         )->execute([
             $uuid,
             $this->ids['courseId'], $this->ids['classId'], $this->ids['teacherId'], $this->ids['roomId'], $this->ids['termId'],
-            $now, '2026-01-01 23:59:59', $status, $secret, $now, $now,
+            $now, '2099-01-01 00:00:00', $status, $secret, $now, $now,
         ]);
 
         return ['id' => (int) $this->pdo->lastInsertId(), 'uuid' => $uuid, 'secret' => $secret];
+    }
+
+    /**
+     * Enrol the fixture student in the fixture class + course
+     * (`student_class_assignments` + `student_courses`).
+     */
+    private function enrolFixtureStudent(): void
+    {
+        $now = '2026-01-01 00:00:00';
+        $this->pdo->prepare('INSERT INTO student_class_assignments (student_id, class_id, academic_term_id, enrolled_at) VALUES (?,?,?,?)')
+            ->execute([$this->ids['studentId'], $this->ids['classId'], $this->ids['termId'], $now]);
+        $this->pdo->prepare('INSERT INTO student_courses (student_id, course_id, class_id, academic_term_id, created_at) VALUES (?,?,?,?,?)')
+            ->execute([$this->ids['studentId'], $this->ids['courseId'], $this->ids['classId'], $this->ids['termId'], $now]);
+    }
+
+    /** WAITING/SYSTEM attendance record for a session + the fixture student. */
+    private function waitingRecord(int $sessionId): void
+    {
+        $now = '2026-01-01 00:00:00';
+        $this->pdo->prepare('INSERT INTO attendance_records (attendance_session_id, student_id, status, source, created_at, updated_at) VALUES (?,?,?,?,?,?)')
+            ->execute([$sessionId, $this->ids['studentId'], 'WAITING', 'SYSTEM', $now, $now]);
+    }
+
+    /**
+     * Generate a currently-valid QR string for a session.
+     *
+     * @param array{id:int, uuid:string, secret:string} $session
+     */
+    private function qrStringFor(array $session, ?\DateTimeImmutable $at = null): string
+    {
+        $at ??= new \DateTimeImmutable('now');
+        $row = (new \QRIVO\Infrastructure\Repository\Attendance\AttendanceSessionRepository($this->buildConnection()))->findRow($session['id']);
+        $svc = new \QRIVO\Application\Service\Attendance\QrService(
+            $this->createMock(\QRIVO\Domain\Contract\LoggerInterface::class),
+            new \QRIVO\Infrastructure\Repository\Attendance\AttendanceSessionRepository($this->buildConnection()),
+            new \QRIVO\Infrastructure\Repository\Attendance\QrNonceRepository($this->buildConnection()),
+            new \QRIVO\Infrastructure\Repository\RelationshipRepository($this->buildConnection()),
+            $this->securityLogService($this->buildConnection()),
+            new \QRIVO\Infrastructure\Config\Config(QRIVO_ROOT),
+        );
+
+        return $svc->generate($row, $at)['qr_string'];
     }
 
     private function scheduleRepo(): \QRIVO\Infrastructure\Repository\ScheduleRepository

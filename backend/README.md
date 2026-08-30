@@ -41,14 +41,15 @@ backend/
 │   ├── Domain/
 │   │   ├── Authorization/  # RolePermissionMap — canonical role → permission map
 │   │   ├── Contract/       # Interfaces: RepositoryInterface, PolicyInterface, ServiceInterface, LoggerInterface
-│   │   ├── Attendance/     # AttendanceEligibility, QrPayload, QrValidationResult
-│   │   ├── Entity/         # User, DeviceSession, Entity/Academic/* (11), Entity/Schedule/* (6), Entity/Attendance/* (2)
-│   │   ├── Enum/           # UserRole, Permission, AttendanceStatus/Source, SessionStatus, DayOfWeek, QrValidationReason, SecurityEventType
+│   │   ├── Attendance/     # AttendanceEligibility, QrPayload, QrValidationResult, RiskAssessment
+│   │   ├── Contract/       # …, RiskEvaluatorInterface
+│   │   ├── Entity/         # User, DeviceSession, Entity/Academic/* (11), Entity/Schedule/* (6), Entity/Attendance/* (3)
+│   │   ├── Enum/           # UserRole, Permission, AttendanceStatus/Source, SessionStatus, DayOfWeek, QrValidationReason, ChallengeFailureReason, RiskLevel/Outcome, SecurityEventType
 │   │   └── Exception/      # Domain exceptions: Unauthorized, Forbidden, NotFound, Conflict, Validation, ...
 │   ├── Application/
 │   │   ├── DTO/            # Base + Auth DTOs
 │   │   ├── Policy/         # SelfOwnedResourcePolicy, AttendanceAuthorizationPolicy
-│   │   ├── Service/        # Auth*, Authorization*, AttendanceEligibility*, Service/{Academic (11), Schedule (6), Attendance: Session + Qr}
+│   │   ├── Service/        # Auth*, Authorization*, AttendanceEligibility*, Service/{Academic (11), Schedule (6), Attendance: Session + Qr + Challenge + RiskEvaluation}
 │   │   └── Validation/     # Validator — input validation rules engine
 │   ├── Infrastructure/
 │   │   ├── Config/         # Config — dot-notation config loader from PHP files + ENV
@@ -190,6 +191,14 @@ per-session `session_secret` (never returned); replay protection = nonce
 (`qr_used_nonces`) + server-side expiry. Tunables in `config/attendance.php` /
 `QR_TTL_SECONDS`.
 
+**Challenge-response attendance (ATTENDANCE_ALGORITHM.md §4, `attendance.qr.submit`):**
+`POST /api/v1/student/attendance/challenge` (`{qr}`) → `{challenge_id, nonce,
+expires_at}`; `POST /api/v1/student/attendance/verify` (`{challenge_id, nonce,
+qr}`) runs the full 13-point checklist in order and records attendance inside one
+transaction (atomic single-use challenge, duplicate check, risk assessment,
+`WAITING → PRESENT`). Challenges are single-use and short-lived; failed attempts
+get a generic message (detail → `security_events`).
+
 List endpoints accept `?page`, `?per_page`, `?search`, and id filters
 (e.g. `?school_id=`, `?academic_term_id=`). Responses are paginated with a `meta` block.
 
@@ -290,7 +299,8 @@ This backend is being built incrementally:
 - [x] Phase 9 — Course/Teacher/Student Assignments + Schedule
 - [x] Phase 10 — Attendance Session
 - [x] Phase 11 — Dynamic QR
-- [ ] Phase 12 — Challenge-Response Attendance
+- [x] Phase 12 — Challenge-Response Attendance
+- [ ] Phase 13 — Teacher Live Attendance
 - [ ] ...
 
 See [`docs/PROJECT_SPECIFICATION.md`](../docs/PROJECT_SPECIFICATION.md) for the full phase list.

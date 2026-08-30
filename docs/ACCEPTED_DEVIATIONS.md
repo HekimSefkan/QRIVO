@@ -325,6 +325,60 @@ OQ-008 tracked in `docs/OPEN_QUESTIONS.md`.
 
 ---
 
+## AD-009: Challenge-response — QR-nonce replay scope, basic risk evaluator, challenge TTL (Phase 12)
+
+**Source wording:** `ATTENDANCE_ALGORITHM.md` §4 specifies the challenge flow,
+the 13-point checklist, single-use (`used_at`), and "risk scoring evaluation" as
+step 13. DD-004 says the QR nonce is "stored in `qr_challenges.qr_nonce` when a
+challenge is issued" to "detect if a **student** attempts to reuse an old QR
+nonce". Neither the challenge TTL nor the risk thresholds are fixed. The full
+risk engine is Phase 19.
+
+**What was done (Phase 12):**
+
+1. **QR-nonce replay at challenge issuance is per-student.** Before issuing a
+   challenge, `qr_challenges` is checked for an existing row with the same
+   `(student_id, qr_nonce)` — a repeat → 409 + `QR_REPLAY`. This is exactly
+   DD-004 and lets many students scan the same displayed QR frame (each gets one
+   challenge). Phase 11's global `qr_used_nonces` store (AD-008) is **not** used
+   by the challenge flow — it remains available for stricter modes.
+
+2. **The Phase 12 risk evaluator is basic.** It measures retry pressure (count of
+   `qr_challenges` for the `(student, session)` in a window). Thresholds are
+   configuration (`config/attendance.php` → `attendance.risk.*`), never
+   hard-coded (spec §6.14). It **always runs** and **always writes a
+   `risk_assessments` row** inside the verification transaction — the pipeline
+   step is never skipped. LOW→PRESENT, MEDIUM→PRESENT + `RISK_ESCALATION`,
+   HIGH→PENDING_REVIEW, BLOCKED→no attendance record (challenge still consumed).
+   The full engine (device / IP / location / multi-device, `system_settings`) is
+   Phase 19; it plugs in via `Domain\Contract\RiskEvaluatorInterface`.
+
+3. **Challenge TTL / rate limits are configuration.** `config/attendance.php` →
+   `attendance.challenge.{ttl_seconds (120), max_per_window (10), window_seconds}`.
+
+4. **Step distribution across two endpoints.** `POST .../challenge` runs
+   auth + QR validation (2-4) + membership (8-9) + QR-nonce replay + rate limit
+   (11) and issues the challenge. `POST .../verify` runs the challenge checks
+   (5-7) + challenge-response match + QR re-validation (3-4) + session re-check
+   (2) + membership re-check (8-9) + device/session hook (12) + the transaction
+   (7-atomic, 10, 13, attendance). Together they cover all 13 checklist items;
+   nothing is bypassed.
+
+**Why this is acceptable:** every mechanism the spec names (challenge nonce,
+single-use `used_at`, ownership, expiry, replay, duplicate `UNIQUE`, transaction,
+risk step) is implemented exactly; the choices above instantiate under-specified
+details using the spec's own tables/config and change no schema, no algorithm
+step, and no security rule. Failed attempts return a generic message + coarse
+HTTP status; the specific reason goes only to `security_events` (§4).
+
+**Enforced in:** `backend/src/Application/Service/Attendance/ChallengeService.php`,
+`RiskEvaluationService.php`, `backend/src/Domain/Contract/RiskEvaluatorInterface.php`,
+`backend/src/Infrastructure/Repository/Attendance/QrChallengeRepository.php`,
+`backend/config/attendance.php`, `database/migrations/007_create_qr_challenges.sql`.
+Full risk engine tracked as Phase 19.
+
+---
+
 ## Change protocol
 
 New deviations may be added here **only** after review. A deviation that touches

@@ -78,4 +78,52 @@ final class AttendanceRecordRepository extends BaseRepository
             ['sid' => $sessionId],
         );
     }
+
+    /**
+     * The record for (session, student). Row-locked on MySQL for the
+     * challenge-response transaction (step 10 — duplicate check).
+     *
+     * @return array<string, mixed>|null
+     */
+    public function findForSessionStudent(int $sessionId, int $studentId, bool $lock = false): ?array
+    {
+        $suffix = ($lock && $this->db->driverName() === 'mysql') ? ' FOR UPDATE' : '';
+
+        return $this->db->fetchOne(
+            "SELECT * FROM `attendance_records`
+              WHERE `attendance_session_id` = :sid AND `student_id` = :stu LIMIT 1{$suffix}",
+            ['sid' => $sessionId, 'stu' => $studentId],
+        );
+    }
+
+    /**
+     * Transition a WAITING record to $status via QR. Returns true only if the row
+     * was WAITING (guards against a concurrent double-mark).
+     */
+    public function markFromWaiting(int $id, string $status, string $markedAt): bool
+    {
+        return $this->db->execute(
+            "UPDATE `attendance_records`
+                SET `status` = :status, `source` = 'QR', `marked_at` = :marked, `updated_at` = :upd
+              WHERE `id` = :id AND `status` = 'WAITING'",
+            ['status' => $status, 'marked' => $markedAt, 'upd' => $markedAt, 'id' => $id],
+        ) > 0;
+    }
+
+    /**
+     * Insert a QR record for a student who has no row yet (enrolled after session
+     * start). UNIQUE(session, student) (C-001) is the backstop.
+     */
+    public function insertViaQr(int $sessionId, int $studentId, string $status, string $markedAt): int
+    {
+        return (int) $this->insert('attendance_records', [
+            'attendance_session_id' => $sessionId,
+            'student_id'            => $studentId,
+            'status'                => $status,
+            'source'                => 'QR',
+            'marked_at'             => $markedAt,
+            'created_at'            => $markedAt,
+            'updated_at'            => $markedAt,
+        ]);
+    }
 }

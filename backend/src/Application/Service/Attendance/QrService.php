@@ -212,6 +212,37 @@ final class QrService extends BaseService
         return $result;
     }
 
+    /**
+     * Signature-and-binding check used when re-validating a QR during
+     * challenge-response verification (ATTENDANCE_ALGORITHM.md §4 checklist
+     * steps 3-4). QR *age* is deliberately NOT re-checked here — by verify time
+     * the challenge's own (longer) expiry governs.
+     *
+     * @return array{reason: QrValidationReason, payload: ?\QRIVO\Domain\Attendance\QrPayload}
+     */
+    public function checkSignature(string $qrString, ?string $expectedSessionUuid = null): array
+    {
+        $payload = QrPayload::decode($qrString);
+        if ($payload === null) {
+            return ['reason' => QrValidationReason::MALFORMED, 'payload' => null];
+        }
+        if ($expectedSessionUuid !== null && !hash_equals($expectedSessionUuid, $payload->sessionUuid)) {
+            return ['reason' => QrValidationReason::WRONG_SESSION, 'payload' => $payload];
+        }
+
+        $session = $this->sessions->findByUuid($payload->sessionUuid);
+        if ($session === null) {
+            return ['reason' => QrValidationReason::SESSION_NOT_FOUND, 'payload' => $payload];
+        }
+
+        $expected = $this->sign($payload->signedMessage(), (string) $session['session_secret']);
+        $reason = hash_equals($expected, $payload->signature)
+            ? QrValidationReason::VALID
+            : QrValidationReason::BAD_SIGNATURE;
+
+        return ['reason' => $reason, 'payload' => $payload];
+    }
+
     // ─── Internals ───────────────────────────────────────────────────────────
 
     private function sign(string $message, string $secret): string

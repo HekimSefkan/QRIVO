@@ -9,6 +9,65 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 
 ## [Unreleased]
 
+### Added (Challenge-Response Attendance — Phase 12)
+
+**Migration**
+- `database/migrations/007_create_qr_challenges.sql` — `qr_challenges`
+  (`UNIQUE(uuid)` C-003, `UNIQUE(nonce)` C-002, `used_at` nullable per DD-003,
+  `qr_nonce` per DD-004), `risk_assessments` (level / score / signals JSON /
+  outcome); FK `ON DELETE RESTRICT` (FK-46..FK-50)
+
+**Domain**
+- `Entity/Attendance/QrChallenge` — `toArray()` omits the challenge `nonce`
+- `Attendance/RiskAssessment`, `Enum/RiskLevel`, `Enum/RiskOutcome`,
+  `Enum/ChallengeFailureReason` (every failure path → its `security_events` type)
+- `Contract/RiskEvaluatorInterface` — the step-13 seam (Phase 19 swaps the impl)
+
+**Repositories**
+- `Repository/Attendance/QrChallengeRepository` — `create`, `findByUuid(lock:)`,
+  `markUsed()` (atomic `WHERE used_at IS NULL` — DD-003),
+  `studentHasChallengeForQrNonce()` (per-student QR-nonce replay — DD-004),
+  `countForStudentSessionSince()` (rate limit / risk)
+- `Repository/Attendance/RiskAssessmentRepository`
+- `AttendanceRecordRepository` — `findForSessionStudent(lock:)`, `markFromWaiting()`,
+  `insertViaQr()`
+
+**Services**
+- `Application/Service/Attendance/ChallengeService` — ATTENDANCE_ALGORITHM.md §4,
+  exactly and in order:
+  - `requestChallenge()` — auth → QR validation (2-4: session ACTIVE, not expired,
+    HMAC-SHA256) → membership (8-9) → per-student QR-nonce replay → rate limit (11)
+    → issue `{ challenge_id, nonce, expires_at }`
+  - `verify()` — load challenge → ownership (6) → single-use pre-check (7) →
+    expiry (5) → challenge-response nonce match (constant time) → QR re-validation
+    + binding to `challenge.qr_nonce` / session (3-4) → session still ACTIVE (2) →
+    membership re-check (8-9) → device/session hook (12) → **transaction**
+    { locked re-check + atomic single-use (7) · duplicate check (10) · risk
+    evaluation + `risk_assessments` write (13) · attendance record } (CONSTRAINTS.md §6)
+  - failures: generic client message + coarse HTTP status; specific reason → `security_events` only
+  - MEDIUM risk → `RISK_ESCALATION` event; BLOCKED → no record, challenge still consumed, `BLOCKED_ATTENDANCE`
+- `Application/Service/Attendance/RiskEvaluationService` — basic (retry-pressure)
+  evaluator; thresholds from `config/attendance.php`, never hard-coded (spec §6.14)
+
+**Config / env** — `attendance.challenge.{ttl_seconds, max_per_window, window_seconds}`,
+`attendance.risk.{soft_retry_threshold, high_retry_threshold, retry_window_seconds}`
+
+**API** (`attendance.qr.submit`, STUDENT)
+- `POST /api/v1/student/attendance/challenge` — `{ qr }` → `{ challenge_id, nonce, expires_at }`
+- `POST /api/v1/student/attendance/verify` — `{ challenge_id, nonce, qr }` → `{ status, source, risk }`
+
+**Tests (32 new — 360 total, 749 assertions, 100% passing)**
+- `ChallengeServiceTest` — happy paths + **every failure path**: non-student, missing/malformed
+  QR, expired QR, tampered/forged QR signature, closed session, not enrolled (course/class),
+  QR-nonce replay, rate limit, unknown challenge, wrong owner, wrong challenge-response nonce,
+  expired challenge, mismatched/forged QR at verify, session closed after issuance, unenrolled
+  after issuance, single-use replay, duplicate attendance, MEDIUM/HIGH/BLOCKED risk outcomes,
+  no-detail-leak in messages — each asserting the matching `security_events` row
+- `ChallengeRoutesTest` — Router-dispatched full scan→challenge→verify, 401 / 403 / 409 / 422
+
+**Not implemented (per instruction / roadmap):** the full risk-scoring engine (Phase 19),
+device-session security (Phase 18), live counters (Phase 13).
+
 ### Added (Dynamic QR System — Phase 11)
 
 **Migration**
