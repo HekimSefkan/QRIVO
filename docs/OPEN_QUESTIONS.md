@@ -163,7 +163,12 @@ Options include:
 
 **Impact:** QR generation service, teacher dashboard, mobile scanner timing
 
-**Status:** ⏳ Awaiting user clarification
+**Interim resolution (Phase 11, 2026-08-30):** QR TTL / refresh / clock-skew are
+read from `config/attendance.php` (`QR_TTL_SECONDS` default **30**,
+`QR_REFRESH_SECONDS`, `QR_CLOCK_SKEW_SECONDS`). A move to `system_settings` is
+deferred. Recorded in `docs/ACCEPTED_DEVIATIONS.md` AD-008.
+
+**Status:** 🟡 Interim resolution in place — `system_settings` migration still awaiting user clarification
 
 ---
 

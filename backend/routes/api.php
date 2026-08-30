@@ -30,6 +30,7 @@ use QRIVO\Presentation\Http\Controller\Admin\TeacherController;
 use QRIVO\Presentation\Http\Controller\Admin\TeacherCourseController;
 use QRIVO\Presentation\Http\Controller\Auth\AuthController;
 use QRIVO\Presentation\Http\Controller\HealthController;
+use QRIVO\Presentation\Http\Controller\Student\AttendanceController as StudentAttendanceController;
 use QRIVO\Presentation\Http\Controller\Teacher\AttendanceController;
 use QRIVO\Presentation\Http\Controller\Teacher\AttendanceEligibilityController;
 
@@ -90,8 +91,14 @@ $r->addRoute('GET', '/api/v1/teacher/attendance/eligibility', [AttendanceEligibi
 // ─── Attendance sessions (Phase 10 — teacher) ────────────────────────────
 // Creation runs the full 10-step ATTENDANCE_ALGORITHM.md §2 sequence inside a
 // transaction; duplicate ACTIVE sessions for a (class, course, term) are refused.
-$r->addRoute('POST', '/api/v1/teacher/attendance/start',    [AttendanceController::class, 'start']);
-$r->addRoute('GET',  '/api/v1/teacher/attendance/{id:\d+}', [AttendanceController::class, 'show']);
+$r->addRoute('POST', '/api/v1/teacher/attendance/start',       [AttendanceController::class, 'start']);
+$r->addRoute('GET',  '/api/v1/teacher/attendance/{id:\d+}',    [AttendanceController::class, 'show']);
+
+// ─── Dynamic QR (Phase 11) ──────────────────────────────────────────────
+// Teacher: current short-lived HMAC-SHA256 signed QR for their ACTIVE session.
+$r->addRoute('GET',  '/api/v1/teacher/attendance/{id:\d+}/qr', [AttendanceController::class, 'qr']);
+// Student: preflight validation of a scanned QR (non-consuming; no attendance created).
+$r->addRoute('POST', '/api/v1/student/attendance/qr/verify',   [StudentAttendanceController::class, 'verifyQr']);
 
 // ─── Teacher Attendance (Phases 11–15) ───────────────────────────────────
 // $r->addRoute('POST',  '/api/v1/teacher/attendance/{id}/close',                   [AttendanceController::class, 'close']);

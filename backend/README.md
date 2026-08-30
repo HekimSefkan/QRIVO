@@ -41,14 +41,14 @@ backend/
 │   ├── Domain/
 │   │   ├── Authorization/  # RolePermissionMap — canonical role → permission map
 │   │   ├── Contract/       # Interfaces: RepositoryInterface, PolicyInterface, ServiceInterface, LoggerInterface
-│   │   ├── Attendance/     # AttendanceEligibility value object
+│   │   ├── Attendance/     # AttendanceEligibility, QrPayload, QrValidationResult
 │   │   ├── Entity/         # User, DeviceSession, Entity/Academic/* (11), Entity/Schedule/* (6), Entity/Attendance/* (2)
-│   │   ├── Enum/           # UserRole, Permission, AttendanceStatus/Source, SessionStatus, DayOfWeek, SecurityEventType
+│   │   ├── Enum/           # UserRole, Permission, AttendanceStatus/Source, SessionStatus, DayOfWeek, QrValidationReason, SecurityEventType
 │   │   └── Exception/      # Domain exceptions: Unauthorized, Forbidden, NotFound, Conflict, Validation, ...
 │   ├── Application/
 │   │   ├── DTO/            # Base + Auth DTOs
 │   │   ├── Policy/         # SelfOwnedResourcePolicy, AttendanceAuthorizationPolicy
-│   │   ├── Service/        # Auth*, Authorization*, AttendanceEligibility*, Service/{Academic (11), Schedule (6), Attendance (1)}
+│   │   ├── Service/        # Auth*, Authorization*, AttendanceEligibility*, Service/{Academic (11), Schedule (6), Attendance: Session + Qr}
 │   │   └── Validation/     # Validator — input validation rules engine
 │   ├── Infrastructure/
 │   │   ├── Config/         # Config — dot-notation config loader from PHP files + ENV
@@ -57,7 +57,7 @@ backend/
 │   │   └── Repository/     # Base/AbstractCrud/Reference/Schedule/Relationship, Repository/{Academic,Schedule,Attendance}/*
 │   └── Presentation/
 │       └── Http/
-│           ├── Controller/        # Health, Auth/*, Admin/* (16), Teacher/{AttendanceEligibility,Attendance}Controller
+│           ├── Controller/        # Health, Auth/*, Admin/* (16), Teacher/{AttendanceEligibility,Attendance}, Student/Attendance
 │           ├── Middleware/        # Cors, JsonBody, Auth, Authorization, MiddlewarePipeline
 │           ├── Response/          # JsonResponse — standard API envelope
 │           ├── BaseController.php
@@ -66,6 +66,7 @@ backend/
 │           └── Router.php
 ├── config/
 │   ├── app.php             # Application config
+│   ├── attendance.php      # Dynamic-QR TTL / refresh / clock-skew
 │   ├── auth.php            # Token TTLs + login rate-limit thresholds
 │   ├── database.php        # Database config
 │   └── logging.php         # Logging config
@@ -178,6 +179,17 @@ initialises every enrolled student as `WAITING`, and refuses a duplicate ACTIVE
 session for the same class/course/term (409). `GET /api/v1/teacher/attendance/{id}`
 returns the caller's own session. `session_secret` is never returned.
 
+**Dynamic QR (ATTENDANCE_ALGORITHM.md §3):**
+`GET /api/v1/teacher/attendance/{id}/qr` (`attendance.live.view`) returns the
+current short-lived QR for the teacher's own ACTIVE session — payload is exactly
+`{session_id (UUID), timestamp, nonce, signature}`, wire format
+`qrivo.v1.<uuid>.<ts>.<nonce>.<hmac_sha256>`; poll every `refresh_seconds`.
+`POST /api/v1/student/attendance/qr/verify` (`attendance.qr.submit`, `{qr}`)
+validates a scanned QR (non-consuming; creates nothing). Signing key is the
+per-session `session_secret` (never returned); replay protection = nonce
+(`qr_used_nonces`) + server-side expiry. Tunables in `config/attendance.php` /
+`QR_TTL_SECONDS`.
+
 List endpoints accept `?page`, `?per_page`, `?search`, and id filters
 (e.g. `?school_id=`, `?academic_term_id=`). Responses are paginated with a `meta` block.
 
@@ -277,7 +289,8 @@ This backend is being built incrementally:
 - [x] Phase 8 — Admin & Academic Structure
 - [x] Phase 9 — Course/Teacher/Student Assignments + Schedule
 - [x] Phase 10 — Attendance Session
-- [ ] Phase 11 — Dynamic QR
+- [x] Phase 11 — Dynamic QR
+- [ ] Phase 12 — Challenge-Response Attendance
 - [ ] ...
 
 See [`docs/PROJECT_SPECIFICATION.md`](../docs/PROJECT_SPECIFICATION.md) for the full phase list.

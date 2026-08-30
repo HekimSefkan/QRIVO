@@ -13,17 +13,18 @@
 | 1 — Specification & Architecture | ✅ Complete | `8b56c39` |
 | 2 — Architecture Freeze | ✅ Complete | `a837af2` |
 | 3 — Database Architecture | ✅ Complete | `a837af2` |
-| 4 — Database Migrations | 🔄 Restructured — now incremental per feature phase (see note below) | `001`–`005` |
+| 4 — Database Migrations | 🔄 Restructured — now incremental per feature phase (see note below) | `001`–`006` |
 | 5 — Backend Foundation | ✅ Complete | `ec1e411` |
 | 6 — Authentication | ✅ Complete | `9c5a378` |
 | 7 — Authorization & RBAC | ✅ Complete | `c4e3863` |
 | 8 — Academic Structure | ✅ Complete | `8321d43` |
 | 9 — Course Scheduling | ✅ Complete | `15942d7` |
-| 10 — Attendance Sessions | ✅ Complete | `feat(attendance): implement QRIVO attendance sessions` |
-| 11 — Dynamic QR System | ⏭️ Next | — |
-| 12–23 | ⛔ Not started | — |
+| 10 — Attendance Sessions | ✅ Complete | `f3438f7` |
+| 11 — Dynamic QR System | ✅ Complete | `feat(qr): implement QRIVO dynamic QR system` |
+| 12 — Challenge-Response Attendance | ⏭️ Next | — |
+| 13–23 | ⛔ Not started | — |
 
-**Test status at Phase 10:** 303 tests, 632 assertions, 100% passing (`backend/`).
+**Test status at Phase 11:** 327 tests, 685 assertions, 100% passing (`backend/`).
 
 ### Migration strategy note (deviation AD-001)
 
@@ -46,7 +47,8 @@ OQ-001), AD-005 (SUPER_ADMIN = full system access; permission names derived from
 spec §6 — interim resolution of OQ-005), AD-006 (teacher-class-assignment
 prerequisite rule + schedule conflict checks; `student_courses` read-only),
 AD-007 (session `end_time` NULL until close; `expires_at` = scheduled meeting
-end; duplicate-active-session scope). `ORIGINAL_SPECIFICATION.md` remains
+end; duplicate-active-session scope), AD-008 (`qr_used_nonces` nonce store; QR
+wire format; QR TTL config — interim OQ-008). `ORIGINAL_SPECIFICATION.md` remains
 unchanged.
 
 ---
@@ -280,13 +282,33 @@ Permission names are derived from PROJECT_SPECIFICATION.md §6.
 
 ---
 
-## Phase 11: Dynamic QR System
+## Phase 11: Dynamic QR System — ✅ COMPLETE
 
-- [ ] QR generation service (session_id, timestamp, nonce, HMAC-SHA256 signature)
-- [ ] QR refresh mechanism
-- [ ] QR expiry validation
-- [ ] QR replay protection
-- [ ] Security tests
+- [x] QR generation service — payload is exactly `{session_id (session UUID), timestamp, nonce, signature}`
+      (ATTENDANCE_ALGORITHM.md §3); wire format `qrivo.v1.<uuid>.<ts>.<nonce>.<sig>`;
+      no other data in the QR (SECURITY_RULES.md §5)
+- [x] Nonce — 16 random bytes (hex), unique per generation
+- [x] Signature — HMAC-SHA256 over `qrivo.v1.<uuid>.<ts>.<nonce>`, keyed by
+      `attendance_sessions.session_secret` (DD-002); the secret never leaves the backend
+- [x] QR refresh mechanism — each generation returns a fresh nonce + signature +
+      `ttl_seconds` / `refresh_seconds`; old QRs stop validating
+- [x] QR expiry validation — server-side timestamp check against the configured TTL (± clock skew)
+- [x] QR replay protection — `qr_used_nonces` (nonce + expiration, per §10 / §5);
+      `validateAndConsume()` records the nonce atomically, repeat → `REPLAYED`
+- [x] Migration `006_create_qr_used_nonces.sql`
+- [x] `config/attendance.php` + `QR_TTL_SECONDS` / `QR_REFRESH_SECONDS` / `QR_CLOCK_SKEW_SECONDS` env
+- [x] API: `GET /api/v1/teacher/attendance/{id}/qr` (`attendance.live.view`, own ACTIVE session);
+      `POST /api/v1/student/attendance/qr/verify` (`attendance.qr.submit`, non-consuming preflight)
+- [x] Security tests (24 new): valid, expired, future-dated, modified/tampered, forged signature,
+      wrong-session-secret signature, malformed, wrong session, unknown session, closed session,
+      replay (+ security-event logging)
+
+**Notes:**
+- A QR does **not** create attendance — it is validated here and exchanged for a
+  challenge in Phase 12.
+- `qr_used_nonces` is the nonce store named in `ARCHITECTURE_FREEZE.md` §2.8; it
+  is not one of the 31 domain tables — see [`ACCEPTED_DEVIATIONS.md`](ACCEPTED_DEVIATIONS.md) AD-008.
+- QR TTL default 30 s (OQ-008 interim).
 
 **Commit:** `feat(qr): implement QRIVO dynamic QR system`
 
