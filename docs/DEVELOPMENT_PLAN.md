@@ -13,18 +13,19 @@
 | 1 — Specification & Architecture | ✅ Complete | `8b56c39` |
 | 2 — Architecture Freeze | ✅ Complete | `a837af2` |
 | 3 — Database Architecture | ✅ Complete | `a837af2` |
-| 4 — Database Migrations | 🔄 Restructured — now incremental per feature phase (see note below) | `001`–`006` |
+| 4 — Database Migrations | 🔄 Restructured — now incremental per feature phase (see note below) | `001`–`007` |
 | 5 — Backend Foundation | ✅ Complete | `ec1e411` |
 | 6 — Authentication | ✅ Complete | `9c5a378` |
 | 7 — Authorization & RBAC | ✅ Complete | `c4e3863` |
 | 8 — Academic Structure | ✅ Complete | `8321d43` |
 | 9 — Course Scheduling | ✅ Complete | `15942d7` |
 | 10 — Attendance Sessions | ✅ Complete | `f3438f7` |
-| 11 — Dynamic QR System | ✅ Complete | `feat(qr): implement QRIVO dynamic QR system` |
-| 12 — Challenge-Response Attendance | ⏭️ Next | — |
-| 13–23 | ⛔ Not started | — |
+| 11 — Dynamic QR System | ✅ Complete | `9cb3ba1` |
+| 12 — Challenge-Response Attendance | ✅ Complete | `feat(security): implement QRIVO challenge-response attendance` |
+| 13 — Teacher Live Attendance | ⏭️ Next | — |
+| 14–23 | ⛔ Not started | — |
 
-**Test status at Phase 11:** 327 tests, 685 assertions, 100% passing (`backend/`).
+**Test status at Phase 12:** 360 tests, 749 assertions, 100% passing (`backend/`).
 
 ### Migration strategy note (deviation AD-001)
 
@@ -48,8 +49,9 @@ spec §6 — interim resolution of OQ-005), AD-006 (teacher-class-assignment
 prerequisite rule + schedule conflict checks; `student_courses` read-only),
 AD-007 (session `end_time` NULL until close; `expires_at` = scheduled meeting
 end; duplicate-active-session scope), AD-008 (`qr_used_nonces` nonce store; QR
-wire format; QR TTL config — interim OQ-008). `ORIGINAL_SPECIFICATION.md` remains
-unchanged.
+wire format; QR TTL config — interim OQ-008), AD-009 (per-student QR-nonce replay;
+basic Phase-12 risk evaluator; challenge TTL config).
+`ORIGINAL_SPECIFICATION.md` remains unchanged.
 
 ---
 
@@ -314,13 +316,37 @@ Permission names are derived from PROJECT_SPECIFICATION.md §6.
 
 ---
 
-## Phase 12: Challenge-Response Attendance
+## Phase 12: Challenge-Response Attendance — ✅ COMPLETE
 
-- [ ] Challenge generation (challenge_id, nonce, expires_at)
-- [ ] Challenge validation and single-use enforcement
-- [ ] Full verification pipeline (QR → Challenge → Validation → Transaction)
-- [ ] Replay protection, duplicate attendance protection
-- [ ] All failure path tests
+- [x] Challenge generation — `{ challenge_id, nonce, expires_at }` exactly (ATTENDANCE_ALGORITHM.md §4);
+      server-generated globally-unique challenge nonce (C-002); `qr_nonce` stored (DD-004)
+- [x] Challenge expiration — `expires_at` checked at verify; configurable TTL (default 120 s)
+- [x] Nonce handling — challenge nonce is the proof-of-possession the mobile echoes back;
+      returned once, never again (`QrChallenge::toArray()` omits it); constant-time compare
+- [x] Single-use enforcement — atomic `UPDATE … SET used_at WHERE id = ? AND used_at IS NULL`
+      inside the transaction (DD-003); pre-check + locked re-check
+- [x] Challenge ownership — `challenge.student_id` must equal the authenticated student;
+      QR resubmitted at verify must match `challenge.qr_nonce` and `challenge.session`
+- [x] Replay prevention — used challenge → 409 + `QR_REPLAY`; per-student QR-nonce replay
+      at challenge issuance via `qr_challenges.qr_nonce` (DD-004)
+- [x] Duplicate attendance protection — step 10: locked `attendance_records` row must be `WAITING`;
+      `UNIQUE(attendance_session_id, student_id)` (C-001) is the DB backstop
+- [x] Transaction handling — atomic single-use + duplicate check + risk assessment + attendance
+      record, all in one `Connection::transaction()` (CONSTRAINTS.md §6)
+- [x] Full pipeline — scan → QR validation (2-4) → membership (8-9) → challenge (5-7) →
+      challenge response → session re-check (2) → device/session hook (12) → risk (13) → attendance
+- [x] Rate limiting (11) — max challenge requests per (student, session) per window → 429
+- [x] Risk (13) — **basic** evaluator (retry pressure) always runs, always writes `risk_assessments`;
+      LOW→PRESENT, MEDIUM→PRESENT+`RISK_ESCALATION`, HIGH→PENDING_REVIEW, BLOCKED→no record
+      (challenge still consumed). Full engine + `system_settings` is Phase 19.
+- [x] Migration `007_create_qr_challenges.sql` (`qr_challenges`, `risk_assessments`)
+- [x] Failure-path tests (32 new) — every reason in `ChallengeFailureReason`, each with its
+      security event, generic client message, HTTP status
+- [x] API: `POST /api/v1/student/attendance/challenge`, `POST /api/v1/student/attendance/verify`
+      (`attendance.qr.submit`, STUDENT)
+
+**Notes:** per-student QR-nonce replay + basic risk evaluator + challenge TTL config —
+[`ACCEPTED_DEVIATIONS.md`](ACCEPTED_DEVIATIONS.md) AD-009.
 
 **Commit:** `feat(security): implement QRIVO challenge-response attendance`
 

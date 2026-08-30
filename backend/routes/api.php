@@ -100,6 +100,11 @@ $r->addRoute('GET',  '/api/v1/teacher/attendance/{id:\d+}/qr', [AttendanceContro
 // Student: preflight validation of a scanned QR (non-consuming; no attendance created).
 $r->addRoute('POST', '/api/v1/student/attendance/qr/verify',   [StudentAttendanceController::class, 'verifyQr']);
 
+// ─── Challenge-response attendance (Phase 12 — student) ──────────────────
+// scan → challenge → challenge response → server validation → attendance.
+$r->addRoute('POST', '/api/v1/student/attendance/challenge',   [StudentAttendanceController::class, 'challenge']);
+$r->addRoute('POST', '/api/v1/student/attendance/verify',      [StudentAttendanceController::class, 'verify']);
+
 // ─── Teacher Attendance (Phases 11–15) ───────────────────────────────────
 // $r->addRoute('POST',  '/api/v1/teacher/attendance/{id}/close',                   [AttendanceController::class, 'close']);
 // $r->addRoute('PATCH', '/api/v1/teacher/attendance/{attendanceId}/student/{studentId}', [AttendanceController::class, 'updateStudent']);
