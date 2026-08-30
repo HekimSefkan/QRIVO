@@ -1,0 +1,152 @@
+# QRIVO — Accepted Deviations
+
+> **Purpose:** This document records deliberate, reviewed deviations between the
+> implementation and the literal wording of the source documents
+> (`ORIGINAL_SPECIFICATION.md`, `docs/PROJECT_SPECIFICATION.md`, and the
+> `database/docs/` design).
+>
+> Nothing here changes the architecture, the attendance algorithm, or the
+> security model. `ORIGINAL_SPECIFICATION.md` remains unmodified and authoritative.
+> Each entry states what changed, why it is acceptable, and where it is enforced.
+
+---
+
+## AD-001: Database migrations are incremental (per feature/domain), not one monolithic phase
+
+**Source expectation:** `docs/DEVELOPMENT_PLAN.md` Phase 4 ("Database Migrations")
+describes creating the complete schema, seeders, and `MIGRATION_GUIDE.md` as a
+single up-front phase, before backend feature work.
+
+**What was done instead:** Migrations are authored **per feature phase**, in the
+same commit as the backend code that depends on them. The first migration,
+`database/migrations/001_create_auth_tables.sql`, creates only the tables the
+Authentication phase needs (`users`, `roles`, `permissions`, `role_permissions`,
+`user_roles`, `login_attempts`, `device_sessions`, `security_events`,
+`audit_logs`) and seeds the four default roles.
+
+**Why this is acceptable:**
+
+- The **full schema is already designed and frozen** in `database/docs/`
+  (`ER_DIAGRAM.md`, `TABLES.md`, `RELATIONSHIPS.md`, `INDEXES.md`,
+  `CONSTRAINTS.md`, `DATABASE_DECISIONS.md`). No table, column, key, or
+  constraint is being invented ad hoc — each migration is a transcription of the
+  frozen design for one domain group.
+- Numbered, ordered migration files (`001_`, `002_`, …) still produce a
+  deterministic, dependency-respecting build of the same final schema.
+- Each phase stays independently testable and reviewable, which is the stated
+  goal of the development plan.
+- `DATABASE_DECISIONS.md` DD-013 ("migration order must respect the FK dependency
+  chain") is still honoured — within and across migration files.
+
+**Constraints going forward:**
+
+- Every new table must match its definition in `database/docs/TABLES.md` exactly
+  (engine `InnoDB`, charset `utf8mb4`, collation `utf8mb4_unicode_ci`, FKs,
+  indexes, unique constraints, `created_at` / `updated_at`).
+- Migration files are append-only and numbered in dependency order.
+- A consolidated `database/docs/MIGRATION_GUIDE.md` will be added when the schema
+  is substantially complete; until then each migration file documents its own
+  scope in a header comment.
+
+**Enforced in:** `database/migrations/`, `docs/DEVELOPMENT_PLAN.md` (Phase 4 note).
+
+---
+
+## AD-002: Login validation performs password verification before account-state checks
+
+**Source wording:** `docs/PROJECT_SPECIFICATION.md` §6.1 and
+`docs/ATTENDANCE_ALGORITHM.md` context list the authentication checks in the
+order: user existence → active account → approval status → password verification.
+
+**What was done instead:** `AuthService::login()`
+(`backend/src/Application/Service/AuthService.php`) performs the checks in this
+order:
+
+1. Rate-limit check (IP + email)
+2. User lookup by email
+3. **Argon2id password verification** (with a constant-time dummy verify when the
+   user does not exist)
+4. Active-account check
+5. Approval-status check
+6. Token issuance
+
+**Why this is acceptable — and why it is a security improvement:**
+
+- Revealing "account inactive" or "account pending approval" **before** the
+  caller has proven knowledge of the password is an **account-state enumeration**
+  weakness. An attacker could learn which email addresses correspond to real
+  (but not-yet-approved / disabled) accounts without any valid credential.
+- With this ordering, all pre-authentication failures return the same generic
+  `Invalid credentials.` response, and the constant-time dummy verify keeps the
+  timing of "user not found" indistinguishable from "wrong password".
+- Every failure path (rate-limited, invalid credentials, inactive, unapproved)
+  is still recorded in `login_attempts` and raised as a `security_events` entry,
+  so operational visibility is unchanged.
+- All functional requirements of §6.1 are still satisfied: inactive and
+  unapproved accounts are still refused a token; the only change is the point in
+  the sequence at which that decision is surfaced.
+
+**This deviation must not be reverted** unless a concrete functional or security
+reason is identified and documented here.
+
+**Covered by tests:**
+`backend/tests/Unit/Application/Service/AuthServiceTest.php`
+— `test_login_wrong_password_does_not_reveal_email_exists`,
+`test_login_nonexistent_user_does_not_reveal_absence`,
+`test_login_inactive_account_throws_unauthorized`,
+`test_login_unapproved_account_throws_unauthorized`.
+
+**Enforced in:** `backend/src/Application/Service/AuthService.php`.
+
+---
+
+## AD-003: Course-schedule table name is `course_schedules` (plural)
+
+**Source wording:** `docs/PROJECT_SPECIFICATION.md` §6.4 refers to
+`course_schedule` (singular) in its list of assignment/scheduling tables.
+
+**What was done instead:** The frozen database design
+(`database/docs/TABLES.md`, `RELATIONSHIPS.md`, `INDEXES.md`, `CONSTRAINTS.md`,
+`ER_DIAGRAM.md`) and `docs/ARCHITECTURE_FREEZE.md` §2.6 all use
+`course_schedules` (plural), consistent with every other table name in the
+schema (`class_courses`, `teacher_courses`, `attendance_sessions`, …).
+
+**Why this is acceptable:**
+
+- It is a naming-convention normalisation only — no change to columns,
+  relationships, or semantics.
+- The plural form is already the single consistent name across all six database
+  design documents and the architecture freeze; the singular form appears only
+  once, in prose, in the specification summary.
+- No code references this table yet (scheduling is a later phase), so there is no
+  migration or query churn.
+
+**Status:** The database documentation is internally consistent and is treated as
+authoritative for table naming. `ORIGINAL_SPECIFICATION.md` is unchanged.
+
+**Enforced in:** `database/docs/`, `docs/ARCHITECTURE_FREEZE.md`.
+
+---
+
+## AD-004: `PENDING_REVIEW` is a first-class attendance status
+
+**Status:** Previously identified and **formally resolved** — see
+`docs/OPEN_QUESTIONS.md` OQ-001 (resolved 2026-08-29) and the `PENDING_REVIEW`
+row added to `docs/ATTENDANCE_ALGORITHM.md` §5.
+
+Recorded here only for completeness. `PENDING_REVIEW` is a full
+`attendance_records.status` value: it is written to student records on session
+close (per `system_settings`), it is the mapped outcome of a `HIGH` risk score,
+and a teacher can resolve it via manual attendance. No further action required.
+
+**Enforced in:** `database/docs/TABLES.md`, `database/docs/CONSTRAINTS.md`,
+`docs/ATTENDANCE_ALGORITHM.md`, `backend/src/Domain/Enum/AttendanceStatus.php`.
+
+---
+
+## Change protocol
+
+New deviations may be added here **only** after review. A deviation that touches
+a locked decision in `docs/ARCHITECTURE_RULES.md`, `docs/ATTENDANCE_ALGORITHM.md`,
+or `docs/SECURITY_RULES.md` still requires the stop-and-approve process in
+`AGENTS.md` §2 and `docs/ARCHITECTURE_RULES.md` §8 — this file does not bypass it.

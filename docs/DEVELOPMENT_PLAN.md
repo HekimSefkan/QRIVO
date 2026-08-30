@@ -5,6 +5,43 @@
 
 ---
 
+## Current Status (updated 2026-08-30)
+
+| Phase | State | Commit |
+|-------|-------|--------|
+| 0 — Project Foundation | ✅ Complete | `528b413`, `13a244a` |
+| 1 — Specification & Architecture | ✅ Complete | `8b56c39` |
+| 2 — Architecture Freeze | ✅ Complete | `a837af2` |
+| 3 — Database Architecture | ✅ Complete | `a837af2` |
+| 4 — Database Migrations | 🔄 Restructured — now incremental per feature phase (see note below) | — |
+| 5 — Backend Foundation | ✅ Complete | `ec1e411` |
+| 6 — Authentication | ✅ Complete | `feat(auth): implement QRIVO authentication` |
+| 7 — Authorization & RBAC | ⏭️ Next | — |
+| 8–23 | ⛔ Not started | — |
+
+**Test status at Phase 6:** 155 tests, 265 assertions, 100% passing (`backend/`).
+
+### Migration strategy note (deviation AD-001)
+
+Phase 4 was **not** executed as a single monolithic migration phase. Instead,
+database migrations are authored **incrementally, per feature/domain phase**, in
+the same commit as the code that depends on them. The complete schema is already
+designed and frozen in `database/docs/`; each migration file is a transcription
+of one domain group from that frozen design, numbered in FK-dependency order
+(`001_`, `002_`, …). See [`ACCEPTED_DEVIATIONS.md`](ACCEPTED_DEVIATIONS.md)
+AD-001. A consolidated `database/docs/MIGRATION_GUIDE.md` will be added once the
+schema is substantially complete.
+
+### Accepted deviations
+
+Deliberate, reviewed differences from the literal source wording are tracked in
+[`ACCEPTED_DEVIATIONS.md`](ACCEPTED_DEVIATIONS.md): AD-001 (incremental
+migrations), AD-002 (login checks password before account-state), AD-003
+(`course_schedules` plural), AD-004 (`PENDING_REVIEW` status — resolved via
+OQ-001). `ORIGINAL_SPECIFICATION.md` remains unchanged.
+
+---
+
 ## Development Workflow
 
 ```
@@ -59,65 +96,77 @@ ALGORITHM / ARCHITECTURE
 
 ---
 
-## Phase 2: Architecture Freeze
+## Phase 2: Architecture Freeze — ✅ COMPLETE (`a837af2`)
 
-- [ ] Create `docs/ARCHITECTURE_FREEZE.md`
-- [ ] Document all locked architectural decisions
-- [ ] Define component responsibilities, inputs, outputs, dependencies, security boundaries
+- [x] Create `docs/ARCHITECTURE_FREEZE.md`
+- [x] Document all locked architectural decisions
+- [x] Define component responsibilities, inputs, outputs, dependencies, security boundaries
 
-**Commit:** `docs: freeze QRIVO system architecture`
-
----
-
-## Phase 3: Database Architecture
-
-- [ ] Design complete MySQL 8 database schema
-- [ ] Create ER diagram
-- [ ] Document tables, relationships, indexes, constraints
-- [ ] Validate model consistency
-
-**Commit:** `docs(database): define QRIVO database architecture`
+**Commit:** `docs(database): define QRIVO database architecture` (`a837af2` — bundled with Phase 3)
 
 ---
 
-## Phase 4: Database Migrations
+## Phase 3: Database Architecture — ✅ COMPLETE (`a837af2`)
 
-- [ ] Create `database/migrations/` in dependency order
-- [ ] Create `database/seeders/`
-- [ ] InnoDB, utf8mb4, foreign keys, indexes, unique constraints
-- [ ] Validate migrations
-- [ ] Create `database/docs/MIGRATION_GUIDE.md`
+- [x] Design complete MySQL 8 database schema
+- [x] Create ER diagram
+- [x] Document tables, relationships, indexes, constraints
+- [x] Validate model consistency
 
-**Commit:** `feat(database): implement QRIVO database migrations`
-
----
-
-## Phase 5: Backend Foundation
-
-- [ ] PHP 8.3+ project setup with Composer
-- [ ] Application bootstrap, configuration, environment
-- [ ] Database connection (PDO)
-- [ ] Router, request/response handling
-- [ ] Exception handling, logging
-- [ ] Middleware pipeline
-- [ ] Service layer, repository layer infrastructure
-- [ ] Validation infrastructure
-- [ ] `backend/README.md`
-- [ ] Automated foundation tests
-
-**Commit:** `feat(backend): establish QRIVO backend foundation`
+**Commit:** `docs(database): define QRIVO database architecture` (`a837af2`)
 
 ---
 
-## Phase 6: Authentication
+## Phase 4: Database Migrations — 🔄 RESTRUCTURED (incremental per feature phase)
 
-- [ ] `POST /api/v1/auth/login`
-- [ ] `POST /api/v1/auth/logout`
-- [ ] `POST /api/v1/auth/refresh`
-- [ ] Password verification (Argon2id)
-- [ ] Rate limiting, login tracking
-- [ ] Audit and security event logging
-- [ ] Tests: valid login, invalid login, rate limit, token operations
+This phase is **no longer executed as one monolithic step.** Migrations are
+created incrementally, per feature/domain, in the same commit as the dependent
+backend code. See the "Migration strategy note" above and
+[`ACCEPTED_DEVIATIONS.md`](ACCEPTED_DEVIATIONS.md) AD-001.
+
+- [x] `database/migrations/` established, files numbered in FK-dependency order
+- [x] InnoDB, utf8mb4, foreign keys, indexes, unique constraints (per migration)
+- [x] `001_create_auth_tables.sql` — identity & access + security/audit tables (delivered with Phase 6)
+- [ ] `002+` — academic structure, assignments, attendance, QR, risk (delivered with their phases)
+- [ ] `database/seeders/` — added when seed data beyond default roles is needed
+- [ ] `database/docs/MIGRATION_GUIDE.md` — added once the schema is substantially complete
+
+**Commits:** one per feature phase (e.g. `001_...` shipped in the Phase 6 commit).
+
+---
+
+## Phase 5: Backend Foundation — ✅ COMPLETE (`ec1e411`)
+
+- [x] PHP 8.3+ project setup with Composer
+- [x] Application bootstrap, configuration, environment
+- [x] Database connection (PDO)
+- [x] Router, request/response handling
+- [x] Exception handling, logging
+- [x] Middleware pipeline
+- [x] Service layer, repository layer infrastructure
+- [x] Validation infrastructure
+- [x] `backend/README.md`
+- [x] Automated foundation tests (118 tests)
+
+**Commit:** `feat(backend): establish QRIVO backend foundation` (`ec1e411`)
+
+---
+
+## Phase 6: Authentication — ✅ COMPLETE
+
+- [x] `POST /api/v1/auth/login`
+- [x] `POST /api/v1/auth/logout`
+- [x] `POST /api/v1/auth/refresh`
+- [x] Password verification (Argon2id) with constant-time dummy verify for unknown users
+- [x] Rate limiting (IP + email, config-driven), login attempt tracking
+- [x] Audit logging (LOGIN_SUCCESS, LOGOUT) and security event logging (all failure paths)
+- [x] Refresh token rotation + token reuse detection (`TOKEN_REUSE` security event)
+- [x] Tokens stored as SHA-256 hashes only; raw tokens never persisted or logged
+- [x] `001_create_auth_tables.sql` migration
+- [x] Tests: valid login, invalid login, enumeration safety, rate limit, logout, refresh, rotation, reuse (37 tests)
+
+**Note:** Login performs password verification *before* active/approved checks to
+prevent account-state enumeration — see [`ACCEPTED_DEVIATIONS.md`](ACCEPTED_DEVIATIONS.md) AD-002.
 
 **Commit:** `feat(auth): implement QRIVO authentication`
 

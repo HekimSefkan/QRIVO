@@ -20,6 +20,7 @@ final class Config
         $this->load('app');
         $this->load('database');
         $this->load('logging');
+        $this->load('auth');
     }
 
     /**

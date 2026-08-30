@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace QRIVO\Infrastructure\Logging;
 
+use QRIVO\Domain\Contract\LoggerInterface;
 use QRIVO\Infrastructure\Config\Config;
 use Monolog\Handler\RotatingFileHandler;
 use Monolog\Handler\StreamHandler;
@@ -18,7 +19,7 @@ use Monolog\Logger as MonologLogger;
  * - Must NOT log passwords, raw tokens, private keys.
  * - Must NOT log unnecessary sensitive personal data.
  */
-final class Logger
+class Logger implements LoggerInterface
 {
     private MonologLogger $monolog;
 

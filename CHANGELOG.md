@@ -9,6 +9,68 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 
 ## [Unreleased]
 
+### Documentation (Authentication handoff — 2026-08-30)
+
+- `docs/ACCEPTED_DEVIATIONS.md` — new; records four reviewed deviations from the literal source wording:
+  - **AD-001** database migrations are incremental per feature/domain, not one monolithic Phase 4
+  - **AD-002** login verifies the password before active/approved checks to prevent account-state enumeration (security improvement — must not be reverted without a documented reason)
+  - **AD-003** the schedule table is named `course_schedules` (plural), consistent with the frozen database design
+  - **AD-004** `PENDING_REVIEW` attendance status — already resolved via OQ-001 (recorded for completeness)
+- `docs/DEVELOPMENT_PLAN.md` — synchronized with real project state: Phases 0–3 and 5 marked complete with commit hashes; Phase 4 reframed as incremental migrations; Phase 6 marked complete; added a "Current Status" table
+- `docs/README.md` — index updated with `ACCEPTED_DEVIATIONS.md` and `ARCHITECTURE_FREEZE.md`
+- `ORIGINAL_SPECIFICATION.md` unchanged (remains the authoritative source)
+- Removed stale local `backend/.phpunit.result.cache` (git-ignored build artifact; unrelated to source)
+
+### Added (Authentication — Phase 6)
+
+**Domain Layer**
+- `src/Domain/Entity/User.php` — immutable user entity; `toSafeArray()` never exposes `password_hash`
+- `src/Domain/Entity/DeviceSession.php` — session entity with `isRevoked()`, `isExpired()`, `isValid()`
+- `src/Domain/Contract/LoggerInterface.php` — logger contract decoupling services from concrete implementation
+
+**Application Layer**
+- `src/Application/DTO/Auth/LoginRequestDTO.php` — login credentials DTO; `toArray()` intentionally excludes raw password
+- `src/Application/DTO/Auth/TokenResponseDTO.php` — token response DTO carrying raw tokens for single-use client delivery
+- `src/Application/Service/AuthService.php` — full auth flow: login (Argon2id, constant-time), logout, refresh (token rotation), `validateToken()`; tokens stored as SHA-256 hashes only
+- `src/Application/Service/LoginAttemptService.php` — server-side rate limiting by IP + email; threshold and window from config
+- `src/Application/Service/SecurityLogService.php` — centralizes `security_events` and `audit_logs` recording; fail-safe (never crashes main flow)
+
+**Infrastructure Layer**
+- `src/Infrastructure/Repository/UserRepository.php` — `findByEmail()`, `findByUuid()`, `findUserById()`, `getRoleNames()`
+- `src/Infrastructure/Repository/DeviceSessionRepository.php` — token hash lookups, session creation, revocation, last-active update
+- `src/Infrastructure/Repository/LoginAttemptRepository.php` — failure counts by IP and email within time windows
+- `src/Infrastructure/Repository/SecurityEventRepository.php` — append-only security event creation
+- `src/Infrastructure/Repository/AuditLogRepository.php` — append-only audit log creation
+
+**Presentation Layer**
+- `src/Presentation/Http/Controller/Auth/AuthController.php` — POST `/api/v1/auth/login`, `/logout`, `/refresh`
+- `src/Presentation/Http/Middleware/AuthMiddleware.php` — Bearer token validation on protected routes; attaches user context to request
+
+**Security Features**
+- Argon2id password hashing (never plaintext, never logged)
+- Constant-time password verification (timing attack prevention)
+- 64-byte cryptographically secure access and refresh tokens
+- SHA-256 token hashing for database storage (raw tokens never stored)
+- Token reuse detection (revoked refresh token → `TOKEN_REUSE` security event)
+- Server-side rate limiting (IP + email thresholds)
+- All failed logins → `login_attempts` + `security_events`
+- All successful logins → `login_attempts` (success=1) + `audit_logs`
+- Logout → revoke session; revoked sessions immediately rejected
+
+**Configuration**
+- `config/auth.php` — token TTLs and rate limiting thresholds from environment
+- `.env.example` updated with `AUTH_*` variables
+
+**Database Migration**
+- `database/migrations/001_create_auth_tables.sql` — creates `users`, `roles`, `permissions`, `role_permissions`, `user_roles`, `login_attempts`, `device_sessions`, `security_events`, `audit_logs`; seeds default roles
+
+**Routes**
+- `routes/api.php` — POST `/api/v1/auth/login`, `/api/v1/auth/logout`, `/api/v1/auth/refresh` now active
+
+**Tests (155 tests, 265 assertions — all passing)**
+- `tests/Unit/Application/Service/AuthServiceTest.php` — 28 tests covering all authentication scenarios
+- `tests/Unit/Application/Service/LoginAttemptServiceTest.php` — 9 tests covering rate limiting
+
 ### Added (Backend Foundation — Phase 5)
 
 **Application Bootstrap**
