@@ -112,7 +112,11 @@ $r->addRoute('POST', '/api/v1/student/attendance/qr/verify',   [StudentAttendanc
 $r->addRoute('POST', '/api/v1/student/attendance/challenge',   [StudentAttendanceController::class, 'challenge']);
 $r->addRoute('POST', '/api/v1/student/attendance/verify',      [StudentAttendanceController::class, 'verify']);
 
-// ─── Teacher Attendance (Phases 11–15) ───────────────────────────────────
+// ─── Manual attendance (Phase 14 — teacher) ─────────────────────────────
+// attendanceId = attendance session id; studentId = students.id. Every change
+// is authorization-gated and audited (ATTENDANCE_ALGORITHM.md §6).
+$r->addRoute('PATCH', '/api/v1/teacher/attendance/{attendanceId:\d+}/student/{studentId:\d+}', [AttendanceController::class, 'updateStudent']);
+
+// ─── Teacher Attendance (Phase 15) ──────────────────────────────────────
 // $r->addRoute('POST',  '/api/v1/teacher/attendance/{id}/close',                   [AttendanceController::class, 'close']);
-// $r->addRoute('PATCH', '/api/v1/teacher/attendance/{attendanceId}/student/{studentId}', [AttendanceController::class, 'updateStudent']);
 

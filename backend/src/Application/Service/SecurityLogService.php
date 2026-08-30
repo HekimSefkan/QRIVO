@@ -97,4 +97,36 @@ final class SecurityLogService extends BaseService
             ]);
         }
     }
+
+    /**
+     * Write an audit log entry that MUST succeed — used inside a transaction
+     * where the audited change and its record must commit or roll back together
+     * (e.g. manual attendance, ATTENDANCE_ALGORITHM.md §6 step 8). Returns the
+     * new `audit_logs` id and re-throws on failure.
+     *
+     * @param array<string, mixed>|null $oldValue Must NOT contain secrets.
+     * @param array<string, mixed>|null $newValue Must NOT contain secrets.
+     */
+    public function writeAuditLog(
+        string  $eventType,
+        ?int    $actorUserId,
+        string  $targetEntity,
+        ?int    $targetId,
+        ?array  $oldValue,
+        ?array  $newValue,
+        ?string $reason,
+        ?string $ipAddress,
+    ): int {
+        return $this->auditLogRepo->create([
+            'event_type'    => $eventType,
+            'actor_user_id' => $actorUserId,
+            'target_entity' => $targetEntity,
+            'target_id'     => $targetId,
+            'old_value'     => $oldValue !== null ? json_encode($oldValue, JSON_UNESCAPED_UNICODE) : null,
+            'new_value'     => $newValue !== null ? json_encode($newValue, JSON_UNESCAPED_UNICODE) : null,
+            'reason'        => $reason,
+            'ip_address'    => $ipAddress,
+            'created_at'    => date('Y-m-d H:i:s'),
+        ]);
+    }
 }

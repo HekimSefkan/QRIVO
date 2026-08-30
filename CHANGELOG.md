@@ -9,6 +9,61 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 
 ## [Unreleased]
 
+### Added (Manual Attendance — Phase 14)
+
+No migration — writes `attendance_records` + `audit_logs`.
+
+**Service — `Application/Service/Attendance/ManualAttendanceService`**
+Implements ATTENDANCE_ALGORITHM.md §6 exactly and in order:
+
+| step | check |
+|---|---|
+| 1 | teacher authentication (`BaseController::authenticate`) |
+| 2 | teacher authorization — `attendance.record.update` (TEACHER); **students never hold it** |
+| 3 | attendance ownership — caller must be the TEACHER who owns the session (else 403 + `IDOR_ATTEMPT`) |
+| 4 | student membership — the student must be enrolled in the session's class (else 404 + `UNAUTHORIZED_ATTENDANCE`) |
+| 5 | status validation — body `status` ∈ `{WAITING, PRESENT, ABSENT, LATE, EXCUSED}` (`PENDING_REVIEW` / unknown → 422) |
+| 6 | transition validation — session not `CANCELLED` (409); new status ≠ current (422 no-op) |
+| 7 | update — `status` + `source = MANUAL` + `marked_at` |
+| 8 | audit — `audit_logs` row |
+
+Steps **7 and 8 run in one transaction** (`Connection::transaction`) — the record
+change and its audit commit or roll back together. `SecurityLogService::writeAuditLog()`
+(new) is the throwing, id-returning variant used here; `AuditLogRepository::create()`
+now returns the new id.
+
+- Teacher can override a QR-submitted status.
+- `CLOSED` sessions still accept manual changes (to resolve `PENDING_REVIEW`); `CANCELLED` do not.
+- Explicit self-modification guard: a user who is both a teacher and a student in
+  the same class cannot set their own attendance (`UNAUTHORIZED_ATTENDANCE`) —
+  SECURITY_RULES.md §7.
+
+**Audit record** (`ATTENDANCE_STATUS_CHANGED`) carries every mandatory field from
+the spec's audit-data table: **actor** (`actor_user_id`), **target**
+(`target_entity` / `target_id` = the `attendance_records` id), **previous state**
+(`old_value` = `{status, source}`), **new state** (`new_value` = `{status,
+source: MANUAL, teacher_id, student_id, attendance_session_id, old_status,
+new_status, marked_at}`), **timestamp** (`created_at`), **reason** (when given),
+**ip** (`ip_address`).
+
+**Repository**
+- `AttendanceRecordRepository` — `setStatusManual()`, `insertManual()`
+- `RelationshipRepository` — `studentIdEnrolledInClass()`, `findUserIdForStudent()`
+
+**API**
+- `PATCH /api/v1/teacher/attendance/{attendanceId}/student/{studentId}` —
+  `{ status, reason? }` → `{ previous_status, previous_source, status, source, reason, marked_at, audit_id }`
+
+**Tests (27 new — 404 total, 880 assertions, 100% passing)**
+- `ManualAttendanceServiceTest` — WAITING→PRESENT, QR override + reason, PENDING_REVIEW
+  resolution, all assignable states, **full audit-field assertions**, reason NULL when
+  omitted, atomicity, **student actor forbidden** (record untouched, no audit),
+  **teacher-cannot-modify-own-attendance**, non-owner (+`IDOR_ATTEMPT`), no-profile teacher,
+  404 session, student-not-in-session (+`UNAUTHORIZED_ATTENDANCE`), missing/unknown/
+  PENDING_REVIEW status (422), no-op (422, no audit), CANCELLED (409), CLOSED (allowed)
+- `ManualAttendanceRoutesTest` — Router-dispatched: owner 200 + audited, student 403
+  (record untouched), 401, other-teacher 403 (+`IDOR_ATTEMPT`), 422 / 404 / 409, non-numeric route → 404
+
 ### Added (Teacher Live Attendance — Phase 13)
 
 No migration — read-only over existing tables.

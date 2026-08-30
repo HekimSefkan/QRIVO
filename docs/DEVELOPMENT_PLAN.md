@@ -22,11 +22,12 @@
 | 10 — Attendance Sessions | ✅ Complete | `f3438f7` |
 | 11 — Dynamic QR System | ✅ Complete | `9cb3ba1` |
 | 12 — Challenge-Response Attendance | ✅ Complete | `a512561` |
-| 13 — Teacher Live Attendance | ✅ Complete (backend) | `feat(teacher): implement QRIVO live attendance` |
-| 14 — Manual Attendance | ⏭️ Next | — |
-| 15–23 | ⛔ Not started | — |
+| 13 — Teacher Live Attendance | ✅ Complete (backend) | `adbcebf` |
+| 14 — Manual Attendance | ✅ Complete | `feat(attendance): implement QRIVO manual attendance` |
+| 15 — Session Close/Cancel | ⏭️ Next | — |
+| 16–23 | ⛔ Not started | — |
 
-**Test status at Phase 13:** 377 tests, 812 assertions, 100% passing (`backend/`).
+**Test status at Phase 14:** 404 tests, 880 assertions, 100% passing (`backend/`).
 
 ### Migration strategy note (deviation AD-001)
 
@@ -381,12 +382,26 @@ Permission names are derived from PROJECT_SPECIFICATION.md §6.
 
 ---
 
-## Phase 14: Manual Attendance
+## Phase 14: Manual Attendance — ✅ COMPLETE
 
-- [ ] `PATCH /api/v1/teacher/attendance/{attendanceId}/student/{studentId}`
-- [ ] State transitions with audit logging
-- [ ] Student self-modification blocked
-- [ ] Authorization and audit tests
+- [x] `PATCH /api/v1/teacher/attendance/{attendanceId}/student/{studentId}`
+      (`attendanceId` = attendance **session** id, `studentId` = `students.id`)
+- [x] Full 8-step sequence (ATTENDANCE_ALGORITHM.md §6), in order:
+      1 auth · 2 authz (`attendance.record.update` — TEACHER only) · 3 attendance ownership ·
+      4 student membership · 5 status validation (∈ WAITING/PRESENT/ABSENT/LATE/EXCUSED) ·
+      6 transition validation (session not CANCELLED; new ≠ current) · 7 update
+      (status + `source = MANUAL` + `marked_at`) · 8 audit — **7 & 8 in one transaction**
+- [x] Teacher can override a QR-submitted status
+- [x] State transitions with audit logging — every change writes an `audit_logs`
+      row (`ATTENDANCE_STATUS_CHANGED`) carrying **actor, target, previous state,
+      new state, timestamp, reason (when given), ip** — plus `teacher_id` /
+      `student_id` / `attendance_session_id` per the spec's audit-data table
+- [x] Student self-modification blocked — at step 2 (students never hold
+      `attendance.record.update`) **and** step 3 (only the owning teacher passes),
+      plus an explicit "you cannot modify your own attendance" guard for a
+      user who is both a teacher and a student in the same class (`UNAUTHORIZED_ATTENDANCE`)
+- [x] Authorization + audit tests (27 new) — ownership, permission, self-mod,
+      membership, every validation branch, and full audit-field assertions
 
 **Commit:** `feat(attendance): implement QRIVO manual attendance`
 

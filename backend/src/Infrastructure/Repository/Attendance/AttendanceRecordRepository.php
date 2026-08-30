@@ -182,4 +182,34 @@ final class AttendanceRecordRepository extends BaseRepository
             'updated_at'            => $markedAt,
         ]);
     }
+
+    /**
+     * Teacher manual override — set the status, mark the source MANUAL, stamp the time
+     * (ATTENDANCE_ALGORITHM.md §6 step 7). Runs inside the manual-attendance transaction.
+     */
+    public function setStatusManual(int $id, string $status, string $markedAt): int
+    {
+        return $this->db->execute(
+            "UPDATE `attendance_records`
+                SET `status` = :status, `source` = 'MANUAL', `marked_at` = :marked, `updated_at` = :upd
+              WHERE `id` = :id",
+            ['status' => $status, 'marked' => $markedAt, 'upd' => $markedAt, 'id' => $id],
+        );
+    }
+
+    /**
+     * Insert a MANUAL record for a student enrolled after session start.
+     */
+    public function insertManual(int $sessionId, int $studentId, string $status, string $markedAt): int
+    {
+        return (int) $this->insert('attendance_records', [
+            'attendance_session_id' => $sessionId,
+            'student_id'            => $studentId,
+            'status'                => $status,
+            'source'                => 'MANUAL',
+            'marked_at'             => $markedAt,
+            'created_at'            => $markedAt,
+            'updated_at'            => $markedAt,
+        ]);
+    }
 }

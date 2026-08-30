@@ -17,12 +17,12 @@ namespace QRIVO\Infrastructure\Repository;
 final class AuditLogRepository extends BaseRepository
 {
     /**
-     * Record an audit log entry.
+     * Record an audit log entry. Returns the new id.
      *
      * @param array<string, mixed> $data
      */
-    public function create(array $data): void
+    public function create(array $data): int
     {
-        $this->insert('audit_logs', $data);
+        return (int) $this->insert('audit_logs', $data);
     }
 }

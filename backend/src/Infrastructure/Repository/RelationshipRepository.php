@@ -52,6 +52,17 @@ final class RelationshipRepository extends BaseRepository
         return $row !== null ? (int) $row['id'] : null;
     }
 
+    /** Resolve the `users.id` behind a `students.id`, or null. */
+    public function findUserIdForStudent(int $studentId): ?int
+    {
+        $row = $this->safeFetchOne(
+            'SELECT `user_id` FROM `students` WHERE `id` = :sid LIMIT 1',
+            ['sid' => $studentId]
+        );
+
+        return $row !== null ? (int) $row['user_id'] : null;
+    }
+
     /**
      * Is the teacher (by user id) assigned to teach $courseId to $classId?
      * This is the authorization basis for attendance session creation
@@ -158,6 +169,29 @@ final class RelationshipRepository extends BaseRepository
                 AND s.`deleted_at` IS NULL
                 AND sca.`class_id` = :cid';
         $bindings = ['uid' => $userId, 'cid' => $classId];
+
+        if ($academicTermId !== null) {
+            $sql .= ' AND sca.`academic_term_id` = :tid';
+            $bindings['tid'] = $academicTermId;
+        }
+
+        return $this->safeExists($sql . ' LIMIT 1', $bindings);
+    }
+
+    /**
+     * Is the student (by `students.id`) enrolled in $classId?
+     * Manual-attendance step 4 (student membership verification).
+     */
+    public function studentIdEnrolledInClass(int $studentId, int $classId, ?int $academicTermId = null): bool
+    {
+        $sql =
+            'SELECT 1
+               FROM `student_class_assignments` sca
+               JOIN `students` s ON s.`id` = sca.`student_id`
+              WHERE sca.`student_id` = :sid
+                AND s.`deleted_at` IS NULL
+                AND sca.`class_id` = :cid';
+        $bindings = ['sid' => $studentId, 'cid' => $classId];
 
         if ($academicTermId !== null) {
             $sql .= ' AND sca.`academic_term_id` = :tid';
