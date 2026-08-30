@@ -1,0 +1,257 @@
+# QRIVO — Backend
+
+> Secure QR-Based University Attendance System — PHP Backend
+
+---
+
+## Overview
+
+The QRIVO backend is a PHP 8.3+ REST API built with a **Clean Architecture** / **MVC with Service Layer** approach. It powers the web dashboard and mobile Flutter application.
+
+All security decisions are enforced **server-side**. The client is never trusted for authentication, authorization, or attendance state.
+
+---
+
+## Technology Stack
+
+| Layer            | Technology               |
+|------------------|--------------------------|
+| Language         | PHP 8.3+                 |
+| Database         | MySQL 8+ (InnoDB, utf8mb4) |
+| DB Access        | PDO (prepared statements) |
+| Package Manager  | Composer                 |
+| Router           | `nikic/fast-route`       |
+| Logging          | `monolog/monolog`        |
+| Env Loading      | `vlucas/phpdotenv`       |
+| Testing          | PHPUnit 11               |
+| QR Signing       | HMAC-SHA256 *(future)*   |
+| Password Hashing | Argon2id *(future)*      |
+
+---
+
+## Directory Structure
+
+```
+backend/
+├── public/
+│   └── index.php           # Sole entry point — all HTTP requests land here
+├── src/
+│   ├── Bootstrap/
+│   │   └── App.php         # Application bootstrap (env, config, logger, DB, router)
+│   ├── Domain/
+│   │   ├── Contract/       # Interfaces: RepositoryInterface, PolicyInterface, ServiceInterface
+│   │   ├── Enum/           # Domain enums: UserRole, AttendanceStatus, SessionStatus, SecurityEventType
+│   │   └── Exception/      # Domain exceptions: Unauthorized, Forbidden, NotFound, Conflict, Validation, ...
+│   ├── Application/
+│   │   ├── DTO/            # Base Data Transfer Object
+│   │   ├── Service/        # BaseService — business logic layer
+│   │   └── Validation/     # Validator — input validation rules engine
+│   ├── Infrastructure/
+│   │   ├── Config/         # Config — dot-notation config loader from PHP files + ENV
+│   │   ├── Database/       # Connection — lazy PDO wrapper with transaction helpers
+│   │   ├── Logging/        # Logger — Monolog wrapper with sensitive key redaction
+│   │   └── Repository/     # BaseRepository — shared PDO CRUD helpers
+│   └── Presentation/
+│       └── Http/
+│           ├── Controller/        # HealthController (and future controllers)
+│           ├── Middleware/        # CorsMiddleware, JsonBodyMiddleware, MiddlewarePipeline
+│           ├── Response/          # JsonResponse — standard API envelope
+│           ├── BaseController.php
+│           ├── ExceptionHandler.php
+│           ├── Request.php
+│           └── Router.php
+├── config/
+│   ├── app.php             # Application config
+│   ├── database.php        # Database config
+│   └── logging.php         # Logging config
+├── routes/
+│   └── api.php             # Route definitions (FastRoute)
+├── storage/
+│   └── logs/               # Application log files (auto-created)
+├── tests/
+│   ├── bootstrap.php
+│   ├── Unit/               # Unit tests (no DB required)
+│   └── Integration/        # Integration tests (requires DB)
+├── .env.example            # Environment variable template
+├── composer.json
+└── phpunit.xml
+```
+
+---
+
+## Setup
+
+### 1. Install Dependencies
+
+```bash
+cd backend
+composer install
+```
+
+### 2. Configure Environment
+
+```bash
+cp .env.example .env
+# Edit .env with your local settings
+```
+
+### 3. Required Environment Variables
+
+```ini
+APP_ENV=local
+APP_DEBUG=true
+APP_URL=http://localhost:8000
+
+DB_DRIVER=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=qrivo
+DB_USERNAME=root
+DB_PASSWORD=
+
+LOG_LEVEL=debug
+CORS_ALLOWED_ORIGINS=*
+```
+
+### 4. Serve the Application
+
+```bash
+php -S localhost:8000 -t public/
+```
+
+---
+
+## Running Tests
+
+```bash
+# All tests
+composer test
+
+# Unit tests only (no DB required)
+vendor/bin/phpunit --testsuite Unit
+
+# Integration tests (requires live DB)
+vendor/bin/phpunit --testsuite Integration
+```
+
+---
+
+## API Endpoints
+
+All endpoints are versioned under `/api/v1/`.
+
+### Currently Implemented
+
+| Method | Endpoint           | Description      |
+|--------|--------------------|------------------|
+| `GET`  | `/api/v1/health`   | System health check |
+
+### Planned (Future Phases)
+
+| Method   | Endpoint                                                             | Description                |
+|----------|----------------------------------------------------------------------|----------------------------|
+| `POST`   | `/api/v1/auth/login`                                                 | User login                 |
+| `POST`   | `/api/v1/auth/logout`                                                | Logout / token invalidation |
+| `POST`   | `/api/v1/auth/refresh`                                               | Refresh token              |
+| `POST`   | `/api/v1/teacher/attendance/start`                                   | Start attendance session   |
+| `POST`   | `/api/v1/teacher/attendance/{id}/close`                              | Close attendance session   |
+| `PATCH`  | `/api/v1/teacher/attendance/{attendanceId}/student/{studentId}`      | Manual attendance update   |
+
+---
+
+## API Response Format
+
+All responses use the standard QRIVO envelope:
+
+**Success:**
+```json
+{
+  "success": true,
+  "message": "OK",
+  "data": { ... }
+}
+```
+
+**Error:**
+```json
+{
+  "success": false,
+  "message": "Error description."
+}
+```
+
+**Validation Error (422):**
+```json
+{
+  "success": false,
+  "message": "Validation failed.",
+  "errors": {
+    "email": ["The email field is required."],
+    "password": ["The password field must be at least 8 characters."]
+  }
+}
+```
+
+---
+
+## Architecture
+
+### Layers
+
+| Layer            | Namespace                        | Responsibility                                   |
+|------------------|----------------------------------|--------------------------------------------------|
+| **Domain**       | `QRIVO\Domain`                   | Entities, enums, contracts, domain exceptions    |
+| **Application**  | `QRIVO\Application`              | Business logic services, validators, DTOs        |
+| **Infrastructure** | `QRIVO\Infrastructure`         | DB connection, config, logging, repositories     |
+| **Presentation** | `QRIVO\Presentation`             | HTTP controllers, middleware, request/response    |
+
+### Dependency Flow
+
+```
+Presentation → Application → Domain
+Infrastructure → Domain
+Presentation → Infrastructure (injected via constructor)
+```
+
+Controllers **must not** contain business logic — delegate to services.  
+Services **must not** access the database directly — use repositories.
+
+---
+
+## Security
+
+- All security decisions are **server-side**
+- Passwords hashed with **Argon2id** *(implemented in auth phase)*
+- PDO with **prepared statements only** (`ATTR_EMULATE_PREPARES = false`)
+- Sensitive keys (`password`, `token`, `secret`, etc.) **redacted** from logs
+- Internal errors **never exposed** to clients (only logged server-side)
+- CORS configured via environment variables — not hard-coded
+- RBAC + resource-level + relationship-based authorization *(implemented in auth phase)*
+
+---
+
+## Development Phases
+
+This backend is being built incrementally:
+
+- [x] Phase 5 — Backend Foundation (this phase)
+- [ ] Phase 6 — Authentication
+- [ ] Phase 7 — RBAC + Authorization
+- [ ] Phase 8 — Admin & Academic Structure
+- [ ] Phase 9 — Course/Teacher/Student Assignments
+- [ ] Phase 10 — Course Schedule
+- [ ] Phase 11 — Attendance Session
+- [ ] Phase 12 — Dynamic QR
+- [ ] ...
+
+See [`docs/PROJECT_SPECIFICATION.md`](../docs/PROJECT_SPECIFICATION.md) for the full phase list.
+
+---
+
+## References
+
+- [Project Specification](../docs/PROJECT_SPECIFICATION.md)
+- [Architecture Rules](../docs/ARCHITECTURE_RULES.md)
+- [Security Rules](../docs/SECURITY_RULES.md)
+- [Attendance Algorithm](../docs/ATTENDANCE_ALGORITHM.md)
+- [Changelog](../CHANGELOG.md)
