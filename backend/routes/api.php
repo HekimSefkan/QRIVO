@@ -31,6 +31,7 @@ use QRIVO\Presentation\Http\Controller\Admin\TeacherCourseController;
 use QRIVO\Presentation\Http\Controller\Auth\AuthController;
 use QRIVO\Presentation\Http\Controller\HealthController;
 use QRIVO\Presentation\Http\Controller\Student\AttendanceController as StudentAttendanceController;
+use QRIVO\Presentation\Http\Controller\Student\SelfController as StudentSelfController;
 use QRIVO\Presentation\Http\Controller\Teacher\AttendanceController;
 use QRIVO\Presentation\Http\Controller\Teacher\AttendanceEligibilityController;
 use QRIVO\Presentation\Http\Controller\Teacher\LiveAttendanceController;
@@ -111,6 +112,13 @@ $r->addRoute('POST', '/api/v1/student/attendance/qr/verify',   [StudentAttendanc
 // scan → challenge → challenge response → server validation → attendance.
 $r->addRoute('POST', '/api/v1/student/attendance/challenge',   [StudentAttendanceController::class, 'challenge']);
 $r->addRoute('POST', '/api/v1/student/attendance/verify',      [StudentAttendanceController::class, 'verify']);
+
+// ─── Student self-service (Phase 16 — mobile app) ───────────────────────
+// The backend is authoritative; the mobile client only renders these payloads.
+$r->addRoute('GET', '/api/v1/student/dashboard',           [StudentSelfController::class, 'dashboard']);
+$r->addRoute('GET', '/api/v1/student/profile',             [StudentSelfController::class, 'profile']);
+$r->addRoute('GET', '/api/v1/student/schedule',            [StudentSelfController::class, 'schedule']);
+$r->addRoute('GET', '/api/v1/student/attendance/history',  [StudentSelfController::class, 'attendanceHistory']);
 
 // ─── Manual attendance (Phase 14 — teacher) ─────────────────────────────
 // attendanceId = attendance session id; studentId = students.id. Every change

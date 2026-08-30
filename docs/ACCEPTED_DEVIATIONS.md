@@ -412,6 +412,39 @@ technology) is the related open question.
 
 ---
 
+## AD-011: Mobile project hand-scaffolded; platform folders gitignored (Phase 16)
+
+**Source wording:** `PROJECT_SPECIFICATION.md` §6.10–6.11 and `DEVELOPMENT_PLAN.md`
+Phase 16: "Flutter project structure", "Authentication with secure token
+storage", "Student Dashboard, Profile, Schedule, Attendance History". The mobile
+client is explicitly a **consumer** of the authoritative backend
+(`SECURITY_RULES.md`: "The backend is the single source of truth").
+
+**What was done (Phase 16):**
+
+1. The Flutter project under `mobile/` was authored by hand (`pubspec.yaml`,
+   `analysis_options.yaml`, `lib/`, `test/`) rather than via `flutter create`,
+   because the development machine has no Flutter/Dart SDK.
+2. The generated platform folders (`android/`, `ios/`, `linux/`, `macos/`,
+   `windows/`, `web/`) and `pubspec.lock` are **gitignored**. A developer runs
+   `flutter create .` + `flutter pub get` once to materialise them locally.
+3. `flutter test` is therefore **not run locally**. The seven Dart test files in
+   `mobile/test/` are authored to run in CI / on a developer workstation. The
+   backend endpoints the client depends on
+   (`GET /api/v1/student/{dashboard,profile,schedule,attendance/history}`) are
+   fully covered by the PHPUnit suite.
+
+**Why this is acceptable:** no architecture, algorithm, security, or database
+decision is affected — the mobile app holds no security logic and persists only
+the token pair in the platform secure store. Gitignoring generated platform
+folders is the Flutter-idiomatic default for a fresh app. The approach is
+reversible: committing the platform folders later is a no-op for the app code.
+
+**Enforced in:** `mobile/.gitignore`, `mobile/README.md`,
+`backend/src/{Infrastructure/Repository/StudentSelfRepository,Application/Service/Student/StudentSelfService,Presentation/Http/Controller/Student/SelfController}.php`.
+
+---
+
 ## Change protocol
 
 New deviations may be added here **only** after review. A deviation that touches

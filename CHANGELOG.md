@@ -9,6 +9,44 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 
 ## [Unreleased]
 
+### Added (Mobile Application Foundation — Phase 16)
+
+**Backend — student self-service** (no migration; read-only over existing tables):
+
+| layer | file |
+|---|---|
+| repository | `Infrastructure/Repository/StudentSelfRepository` — profile, own schedule, paginated attendance history, status summary; keyed by `students.id` |
+| service | `Application/Service/Student/StudentSelfService` — resolves the caller's student id via `RelationshipRepository`, rejects non-students (403), aggregates the dashboard |
+| controller | `Presentation/Http/Controller/Student/SelfController` — gated by `PROFILE_SELF_VIEW` / `SCHEDULE_SELF_VIEW` / `ATTENDANCE_HISTORY_SELF_VIEW` |
+
+Routes: `GET /api/v1/student/dashboard`, `/student/profile`, `/student/schedule`,
+`/student/attendance/history`. A student sees **only their own** data; teachers and
+admins without the self-view permissions get 403.
+
+Tests: `StudentSelfServiceTest`, `StudentSelfRoutesTest` — backend suite now
+**415 tests, 924 assertions, 100% passing**.
+
+**Mobile — `mobile/` (Flutter, foundation)**:
+
+- `core/api` — `ApiClient` (`/api/v1` base, bearer header, `{data,meta,message}`
+  envelope unwrap, one-shot 401→refresh→retry, `ApiException` mapping); typed
+  `StudentApi` for the four endpoints. Base URL via `--dart-define=QRIVO_API_BASE_URL`.
+- `core/auth` — `Session` (expiry / refresh-window logic), `SecureSessionStore`
+  (iOS Keychain / Android EncryptedSharedPreferences + Keystore, single JSON blob),
+  `AuthRepository` (bare `http.Client`, no refresh recursion), `AuthController`
+  (`ChangeNotifier`: launch bootstrap + `/auth/me` validation, sign in/out,
+  single-flight token refresh, secure-store wipe on hard 401).
+- `features/` — login, bottom-nav shell, dashboard, schedule, attendance history
+  (infinite scroll), profile. **No QR scanner** (Phase 17).
+- 7 Dart test files under `mobile/test/` (MockClient + in-memory store).
+
+**No client-side security logic** — the backend remains authoritative. The only
+secret persisted on device is the token pair, in the platform secure store.
+
+Deviation **AD-011**: `mobile/` was hand-scaffolded (no local Flutter SDK);
+generated platform folders + `pubspec.lock` are gitignored (`flutter create .`
+locally); `flutter test` runs in CI. `ORIGINAL_SPECIFICATION.md` unchanged.
+
 ### Added (Manual Attendance — Phase 14)
 
 No migration — writes `attendance_records` + `audit_logs`.
