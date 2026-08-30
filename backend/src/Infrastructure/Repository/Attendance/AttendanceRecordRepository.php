@@ -111,6 +111,62 @@ final class AttendanceRecordRepository extends BaseRepository
     }
 
     /**
+     * Live roster for a session — one row per student, with name/number/status/
+     * source/time. Optional server-side search + status + updated-since filters.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function liveRoster(
+        int $sessionId,
+        ?string $search = null,
+        ?string $status = null,
+        ?string $updatedSince = null,
+    ): array {
+        $sql =
+            'SELECT ar.`student_id`, ar.`status`, ar.`source`, ar.`marked_at`, ar.`updated_at`,
+                    s.`student_number`, u.`first_name`, u.`last_name`
+               FROM `attendance_records` ar
+               JOIN `students` s ON s.`id` = ar.`student_id`
+               JOIN `users`    u ON u.`id` = s.`user_id`
+              WHERE ar.`attendance_session_id` = :sid';
+        $bindings = ['sid' => $sessionId];
+
+        if ($status !== null && $status !== '') {
+            $sql .= ' AND ar.`status` = :status';
+            $bindings['status'] = $status;
+        }
+        if ($search !== null && $search !== '') {
+            $sql .= ' AND (s.`student_number` LIKE :q OR u.`first_name` LIKE :q OR u.`last_name` LIKE :q)';
+            $bindings['q'] = '%' . $search . '%';
+        }
+        if ($updatedSince !== null && $updatedSince !== '') {
+            $sql .= ' AND ar.`updated_at` >= :since';
+            $bindings['since'] = $updatedSince;
+        }
+
+        $sql .= ' ORDER BY u.`last_name` ASC, u.`first_name` ASC, ar.`student_id` ASC';
+
+        return $this->db->fetchAll($sql, $bindings);
+    }
+
+    /**
+     * A cheap change signal for delta polling: "{total}:{marked}:{maxUpdatedAt}".
+     * Changes whenever any record's status/time changes or a record is added.
+     */
+    public function rosterVersion(int $sessionId): string
+    {
+        $row = $this->db->fetchOne(
+            "SELECT COUNT(*) AS total,
+                    COALESCE(MAX(`updated_at`), '') AS max_updated,
+                    COALESCE(SUM(CASE WHEN `status` <> 'WAITING' THEN 1 ELSE 0 END), 0) AS marked
+               FROM `attendance_records` WHERE `attendance_session_id` = :sid",
+            ['sid' => $sessionId],
+        );
+
+        return sprintf('%d:%d:%s', (int) ($row['total'] ?? 0), (int) ($row['marked'] ?? 0), (string) ($row['max_updated'] ?? ''));
+    }
+
+    /**
      * Insert a QR record for a student who has no row yet (enrolled after session
      * start). UNIQUE(session, student) (C-001) is the backstop.
      */

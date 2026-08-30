@@ -49,7 +49,7 @@ backend/
 │   ├── Application/
 │   │   ├── DTO/            # Base + Auth DTOs
 │   │   ├── Policy/         # SelfOwnedResourcePolicy, AttendanceAuthorizationPolicy
-│   │   ├── Service/        # Auth*, Authorization*, AttendanceEligibility*, Service/{Academic (11), Schedule (6), Attendance: Session + Qr + Challenge + RiskEvaluation}
+│   │   ├── Service/        # Auth*, Authorization*, AttendanceEligibility*, Service/{Academic (11), Schedule (6), Attendance: Session + Qr + Challenge + RiskEvaluation + LiveAttendance}
 │   │   └── Validation/     # Validator — input validation rules engine
 │   ├── Infrastructure/
 │   │   ├── Config/         # Config — dot-notation config loader from PHP files + ENV
@@ -58,7 +58,7 @@ backend/
 │   │   └── Repository/     # Base/AbstractCrud/Reference/Schedule/Relationship, Repository/{Academic,Schedule,Attendance}/*
 │   └── Presentation/
 │       └── Http/
-│           ├── Controller/        # Health, Auth/*, Admin/* (16), Teacher/{AttendanceEligibility,Attendance}, Student/Attendance
+│           ├── Controller/        # Health, Auth/*, Admin/* (16), Teacher/{AttendanceEligibility,Attendance,LiveAttendance}, Student/Attendance
 │           ├── Middleware/        # Cors, JsonBody, Auth, Authorization, MiddlewarePipeline
 │           ├── Response/          # JsonResponse — standard API envelope
 │           ├── BaseController.php
@@ -199,6 +199,15 @@ transaction (atomic single-use challenge, duplicate check, risk assessment,
 `WAITING → PRESENT`). Challenges are single-use and short-lived; failed attempts
 get a generic message (detail → `security_events`).
 
+**Teacher live attendance (PROJECT_SPECIFICATION.md §6.8, `attendance.live.view`):**
+`GET /api/v1/teacher/attendance/{id}/live` returns the dashboard snapshot
+(session + current QR + live counters `TOTAL/WAITING/PRESENT/ABSENT/LATE/EXCUSED/PENDING_REVIEW`
++ student roster). Poll `.../live/counters` every `poll_interval_ms` and
+re-fetch `.../live/students` (`?search=`, `?status=`, `?updated_since=`) when
+`students_version` changes (AJAX polling — the spec's fallback). Session
+ownership is re-checked on **every** request; only that session's students are
+returned; `session_secret` is never exposed.
+
 List endpoints accept `?page`, `?per_page`, `?search`, and id filters
 (e.g. `?school_id=`, `?academic_term_id=`). Responses are paginated with a `meta` block.
 
@@ -300,7 +309,8 @@ This backend is being built incrementally:
 - [x] Phase 10 — Attendance Session
 - [x] Phase 11 — Dynamic QR
 - [x] Phase 12 — Challenge-Response Attendance
-- [ ] Phase 13 — Teacher Live Attendance
+- [x] Phase 13 — Teacher Live Attendance
+- [ ] Phase 14 — Manual Attendance
 - [ ] ...
 
 See [`docs/PROJECT_SPECIFICATION.md`](../docs/PROJECT_SPECIFICATION.md) for the full phase list.
