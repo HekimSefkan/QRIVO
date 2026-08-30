@@ -661,6 +661,55 @@ read-only, permission-gated server-side, and returns sanitized data.
 
 ---
 
+## AD-016: Attendance reporting — rate definition, endpoint overlap, admin scope (Phase 21)
+
+**Source wording:** `PROJECT_SPECIFICATION.md` §6.16 —
+"Teacher: course attendance, class attendance, date range, student history.
+Admin: institution-level, department-level, course statistics, attendance
+statistics. Student: only their own attendance history. Authorization enforced
+on all reports. Pagination and filtering required."
+
+**What was done (Phase 21), and the under-specified choices made:**
+
+1. **`present_rate` = `present / marked`**, where `marked = total_records −
+   waiting`. The spec names the reports but not the rate formula. `WAITING`
+   records (open sessions, nobody marked yet) are excluded from the denominator
+   so an in-progress session does not deflate the rate; `LATE`, `ABSENT`,
+   `EXCUSED`, `PENDING_REVIEW` are in the denominator. All raw counts are also
+   returned so a consumer can compute a different rate.
+
+2. **`GET /api/v1/student/reports/attendance`** (`report.self.view`) sits
+   alongside the existing `GET /api/v1/student/attendance/history`
+   (`attendance.history.self.view`, Phase 16). The Phase-16 endpoint is the raw
+   mobile list; the reporting endpoint adds the summary block, `present_rate`,
+   and the full filter set. Both are strictly own-data. Kept separate rather than
+   merged so the mobile contract is untouched.
+
+3. **No per-admin institutional partition.** The spec says admins see data
+   "only according to their assigned permissions". `report.institution.view` is
+   therefore treated as institution-wide: an admin who holds it sees the whole
+   institution; one who does not gets 403. There is no notion in the spec of an
+   admin scoped to a particular school/faculty — the `school_id` / `faculty_id`
+   / `department_id` query parameters are *filters*, available to any holder of
+   the permission, not an authorization boundary.
+
+4. **Pagination "where required"** is applied to the row-level lists
+   (`sessions`, `students`, `records`) only. The aggregate breakdowns
+   (`by_department`, `by_status`, `by_day`, …) are bounded and returned whole,
+   like the counters on the live-attendance endpoint.
+
+**Why this is acceptable:** no schema change (no migration), no change to the
+authentication / authorization model, the attendance algorithm, or any locked
+decision. Every report is read-only and permission-gated server-side, with the
+teacher→course/class/student relationship verified before any row is read.
+`ORIGINAL_SPECIFICATION.md` unchanged.
+
+**Enforced in:** `backend/src/Infrastructure/Repository/Report/AttendanceReportRepository.php`,
+`backend/src/Application/Service/Report/{AbstractReportService,TeacherReportService,AdminReportService,StudentReportService}.php`,
+`backend/src/Presentation/Http/Controller/{Teacher,Admin,Student}/ReportController.php`.
+
+---
+
 ## Change protocol
 
 New deviations may be added here **only** after review. A deviation that touches

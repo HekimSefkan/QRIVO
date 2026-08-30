@@ -29,10 +29,11 @@
 | 17 — Mobile QR Attendance | ✅ Complete | `8306ba6` |
 | 18 — Device Session Security | ✅ Complete | `74a4ff2` |
 | 19 — Risk Scoring | ✅ Complete | `0eb36f7` |
-| 20 — Security Events & Audit | ✅ Complete | `feat(security): implement QRIVO audit and security events` |
-| 21–23 | ⛔ Not started | — |
+| 20 — Security Events & Audit | ✅ Complete | `26076f8` |
+| 21 — Reporting | ✅ Complete | `feat(reports): implement QRIVO attendance reporting` |
+| 22–23 | ⛔ Not started | — |
 
-**Test status at Phase 20:** backend **528 tests, 1189 assertions, 100% passing**
+**Test status at Phase 21:** backend **553 tests, 1274 assertions, 100% passing**
 (`backend/`). Mobile: 10 Dart test files under `mobile/test/`; the Flutter SDK is
 not available on the development machine, so `flutter test` runs in CI / on a
 developer workstation (see AD-011).
@@ -75,7 +76,9 @@ in `system_settings` → `config/risk.php` → defaults; `LOCATION_MISMATCH` and
 `SUSPICIOUS_IP` data-gated per OQ-003 / OQ-010), AD-015 (central `LogSanitizer`
 redaction pass on all persisted + file logs; read-only admin trail endpoints
 under `/api/v1/admin/{security-events,audit-logs}` using the pre-defined
-view permissions).
+view permissions), AD-016 (reporting: `present_rate` = present / marked;
+student report endpoint sits alongside the Phase-16 history list; no per-admin
+institutional partition — `report.institution.view` is institution-wide).
 `ORIGINAL_SPECIFICATION.md` remains unchanged.
 
 ---
@@ -651,11 +654,44 @@ See [`ACCEPTED_DEVIATIONS.md`](ACCEPTED_DEVIATIONS.md) AD-015.
 
 ---
 
-## Phase 21: Reporting
+## Phase 21: Reporting — ✅ COMPLETE
 
-- [ ] Teacher, Admin, Student reports
-- [ ] Authorization enforced on all reports
-- [ ] Pagination, filtering
+The reports defined in PROJECT_SPECIFICATION.md §6.16. Read-only over existing
+tables — **no migration**. One aggregation repository
+(`Infrastructure\Repository\Report\AttendanceReportRepository`), one query/
+validation base (`AbstractReportService`), one service per role.
+
+- [x] **Student** — `GET /api/v1/student/reports/attendance` (`report.self.view`):
+      own attendance history + summary. The `students.id` is resolved from the
+      token; a `student_id` can never be supplied.
+- [x] **Teacher** (`report.course.view`) — the relationship is verified
+      server-side before any row is read (403 + `UNAUTHORIZED_ACCESS` otherwise):
+      - `GET /teacher/reports/course/{id}` — per-session breakdown for a course
+        the teacher teaches
+      - `GET /teacher/reports/class/{id}` — per-student breakdown for a class the
+        teacher is assigned to
+      - `GET /teacher/reports/student/{id}` — a student's records **restricted to
+        the teacher's own classes/courses**; a client course/class filter may
+        only narrow that scope, never widen it. Other teachers' data is never
+        returned.
+- [x] **Admin** (`report.institution.view` — "only per assigned permissions") —
+      `GET /admin/reports/{institution, department/{id}, course/{id},
+      attendance-statistics}`: overall summary + breakdowns by department /
+      program / class / status / source / day.
+- [x] **Authorization enforced on every report** — permission gate in the
+      controller + relationship check in the service. Cross-role access is 403;
+      unauthenticated is 401.
+- [x] **Pagination + filtering** — row-level lists (`sessions`, `students`,
+      `records`) are paginated (`page`, `per_page` ≤ 100) with a `meta` block;
+      bounded aggregate breakdowns are not. Filters are whitelisted per report
+      (`course_id`, `class_id`, `academic_term_id`, `status`, `source`,
+      `session_status`, `from`, `to`, institutional ids); bad input is 422.
+- [x] Tests — `AttendanceReportRepositoryTest` (aggregation maths, grouping,
+      pagination, list-scoping), `ReportRoutesTest` (the full authorization
+      hierarchy, scoping, filter validation, pagination, 401/403/404 through the
+      Router).
+
+See [`ACCEPTED_DEVIATIONS.md`](ACCEPTED_DEVIATIONS.md) AD-016.
 
 **Commit:** `feat(reports): implement QRIVO attendance reporting`
 
