@@ -9,6 +9,70 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 
 ## [Unreleased]
 
+### Added (Dynamic QR System — Phase 11)
+
+**Migration**
+- `database/migrations/006_create_qr_used_nonces.sql` — `qr_used_nonces`
+  (`UNIQUE(nonce)`, FK RESTRICT to `attendance_sessions`) — the QR-layer replay
+  store named in `ARCHITECTURE_FREEZE.md` §2.8
+
+**Config**
+- `config/attendance.php` + `.env.example`: `QR_TTL_SECONDS` (default 30 —
+  OQ-008), `QR_REFRESH_SECONDS`, `QR_CLOCK_SKEW_SECONDS`; `Config` now loads it
+
+**Domain**
+- `Attendance/QrPayload` — the four spec fields (`session_id` = session **UUID**,
+  `timestamp`, `nonce`, `signature`); `encode()` / `decode()` for the wire format
+  `qrivo.v1.<uuid>.<ts>.<nonce>.<sig>`; nothing else in the payload
+- `Attendance/QrValidationResult`, `Enum/QrValidationReason`
+  (VALID / MALFORMED / SESSION_NOT_FOUND / SESSION_NOT_ACTIVE / WRONG_SESSION /
+  EXPIRED / BAD_SIGNATURE / REPLAYED → `QR_INVALID` / `QR_EXPIRED` / `QR_REPLAY` events)
+
+**Service — `Application/Service/Attendance/QrService`**
+- `generate()` — `nonce` = 16 random bytes hex, unique per call; `signature` =
+  `hash_hmac('sha256', 'qrivo.v1.<uuid>.<ts>.<nonce>', session_secret)`
+  (DD-002 — `session_secret` is the key and is never returned); returns
+  `ttl_seconds` / `refresh_seconds` / `expires_at`
+- `currentQrForOwnedSession()` — teacher must own the session (else `IDOR_ATTEMPT` + 403);
+  session must be ACTIVE (else 409)
+- `validate()` — non-consuming: shape → `WRONG_SESSION` if expected mismatch →
+  session ACTIVE → server-side expiry (age vs TTL ± skew) → HMAC-SHA256 with
+  `hash_equals()` → replay (`qr_used_nonces`)
+- `validateAndConsume()` — validate then atomically `INSERT` the nonce; a
+  repeat/concurrent consumption → `REPLAYED` (used by Phase 12's challenge request)
+- `verify()` — the student preflight wrapper; logs bad outcomes at LOW severity,
+  never consumes
+
+**Repository**
+- `Repository/Attendance/QrNonceRepository` — `nonceExists()`, `consume()` (throws on
+  `UNIQUE(nonce)` violation → the race-safe replay guard)
+
+**API**
+- `GET /api/v1/teacher/attendance/{id}/qr` — current signed QR for the teacher's
+  own ACTIVE session; `attendance.live.view`
+- `POST /api/v1/student/attendance/qr/verify` — `{ qr, session_id? }` → `{ valid,
+  reason, session_uuid }`; non-consuming; `attendance.qr.submit`
+
+**Security properties**
+- QR is dynamic and short-lived; old QRs stop validating once the timestamp ages past the TTL
+- HMAC-SHA256 signing keyed per session; `session_secret` never appears in any response
+- Tampering any field invalidates the signature (`BAD_SIGNATURE`)
+- Replay protection = nonce (`qr_used_nonces`) + expiration
+- A QR does **not** create attendance — validation only
+- Minimal payload — session UUID + timestamp + nonce + signature, nothing else
+
+**Tests (24 new — 327 total, 685 assertions, 100% passing)**
+- `tests/Unit/Application/Service/Attendance/QrServiceTest.php` — payload shape / no secret,
+  fresh nonce per generation, HMAC correctness; **valid**, **expired** (past + future-dated),
+  **modified/tampered**, **forged / wrong-secret signature**, **malformed**, **wrong session**,
+  unknown session, **closed session**, **replay** (+ `QR_REPLAY` event), verify logs
+  `QR_EXPIRED` without consuming
+- `tests/Unit/Presentation/Http/Controller/Attendance/QrRoutesTest.php` — Router-dispatched
+  teacher generate (200 / 401 / 403 non-owner + `IDOR_ATTEMPT` / 409 closed), student verify
+  (200 valid / 200 malformed / 403 teacher / 422)
+
+**Not implemented (per instruction):** challenge-response (Phase 12), attendance creation.
+
 ### Added (Attendance Sessions — Phase 10)
 
 **Migration**

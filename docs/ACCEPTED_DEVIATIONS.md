@@ -283,6 +283,48 @@ not state whether `end_time` is populated at creation, nor the value of
 
 ---
 
+## AD-008: Dynamic-QR nonce store, wire format, and TTL config (Phase 11)
+
+**Source wording:** `ATTENDANCE_ALGORITHM.md` §3 specifies the QR payload
+(`session_id`, `timestamp`, `nonce`, `signature`), HMAC-SHA256 signing, refresh,
+and "old QR codes become invalid". It does not fix a wire encoding, a nonce
+store, or a refresh interval. `ARCHITECTURE_FREEZE.md` §2.8 names the nonce store
+as "in-memory or `qr_used_nonces`". OQ-008 flags the TTL as unresolved.
+
+**What was done (Phase 11):**
+
+1. **Nonce store = `qr_used_nonces`** (migration `006`). `UNIQUE(nonce)`; a QR
+   nonce is written the first time that QR is consumed, so a second consumption
+   is impossible even under concurrency. This is the durable option explicitly
+   offered by the architecture freeze. **It is not one of the 31 domain tables**
+   in `database/docs/TABLES.md` — it is an implementation table for the frozen
+   "Dynamic QR Module" component, added under the freeze's own wording.
+
+2. **Wire format** — the string encoded into the QR image is
+   `qrivo.v1.<session_uuid>.<unix_ts>.<nonce_hex>.<hmac_sha256_hex>`. The
+   signature covers `qrivo.v1.<session_uuid>.<unix_ts>.<nonce_hex>`. `session_id`
+   is the session **UUID** (the "safe external identifier"), never the internal
+   numeric id. No other field is present (SECURITY_RULES.md §5).
+
+3. **TTL / refresh** — `config/attendance.php` reads `QR_TTL_SECONDS` (default
+   **30**, matching `.env.example`), `QR_REFRESH_SECONDS`, and
+   `QR_CLOCK_SKEW_SECONDS`. This is the interim resolution of **OQ-008**; a move
+   to `system_settings` is deferred.
+
+**Why this is acceptable:** all three instantiate details the spec leaves open,
+using the mechanisms the spec/freeze already name, and change no domain schema,
+no algorithm step, and no security rule. The signature algorithm (HMAC-SHA256),
+the per-session key (`session_secret`, DD-002), server-side expiry, and
+nonce+expiration replay protection are implemented exactly as specified.
+
+**Enforced in:** `backend/src/Domain/Attendance/QrPayload.php`,
+`backend/src/Application/Service/Attendance/QrService.php`,
+`backend/src/Infrastructure/Repository/Attendance/QrNonceRepository.php`,
+`backend/config/attendance.php`, `database/migrations/006_create_qr_used_nonces.sql`.
+OQ-008 tracked in `docs/OPEN_QUESTIONS.md`.
+
+---
+
 ## Change protocol
 
 New deviations may be added here **only** after review. A deviation that touches

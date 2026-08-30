@@ -204,6 +204,11 @@ trait AcademicSchemaTrait
                 FOREIGN KEY (attendance_session_id) REFERENCES attendance_sessions(id) ON DELETE RESTRICT,
                 FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE RESTRICT
             );
+            CREATE TABLE qr_used_nonces (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, attendance_session_id INTEGER NOT NULL,
+                nonce TEXT NOT NULL UNIQUE, consumed_at TEXT NOT NULL, created_at TEXT NOT NULL,
+                FOREIGN KEY (attendance_session_id) REFERENCES attendance_sessions(id) ON DELETE RESTRICT
+            );
         SQL);
 
         // Seed roles/permissions from the canonical map.
@@ -418,6 +423,38 @@ trait AcademicSchemaTrait
     private function mondayAt(string $time = '10:00:00'): \DateTimeImmutable
     {
         return new \DateTimeImmutable("2026-03-02 {$time}"); // 2026-03-02 is a Monday
+    }
+
+    /**
+     * Insert an attendance session row directly (bypassing the Phase 10 flow).
+     * Uses the fixtures' course/class/teacher/room/term unless overridden.
+     *
+     * @return array{id:int, uuid:string, secret:string}
+     */
+    private function insertSession(string $status = 'ACTIVE', ?string $secret = null): array
+    {
+        $now    = '2026-01-01 00:00:00';
+        $uuid   = sprintf(
+            '%s-%s-4%s-%s-%s',
+            bin2hex(random_bytes(4)),
+            bin2hex(random_bytes(2)),
+            substr(bin2hex(random_bytes(2)), 1),
+            '8' . substr(bin2hex(random_bytes(2)), 1),
+            bin2hex(random_bytes(6)),
+        );
+        $secret ??= bin2hex(random_bytes(32));
+
+        $this->pdo->prepare(
+            'INSERT INTO attendance_sessions
+                 (uuid, course_id, class_id, teacher_id, room_id, academic_term_id, start_time, end_time, expires_at, status, session_secret, created_at, updated_at)
+             VALUES (?,?,?,?,?,?,?,NULL,?,?,?,?,?)'
+        )->execute([
+            $uuid,
+            $this->ids['courseId'], $this->ids['classId'], $this->ids['teacherId'], $this->ids['roomId'], $this->ids['termId'],
+            $now, '2026-01-01 23:59:59', $status, $secret, $now, $now,
+        ]);
+
+        return ['id' => (int) $this->pdo->lastInsertId(), 'uuid' => $uuid, 'secret' => $secret];
     }
 
     private function scheduleRepo(): \QRIVO\Infrastructure\Repository\ScheduleRepository
