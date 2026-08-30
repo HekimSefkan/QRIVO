@@ -313,7 +313,7 @@ final class AuthService extends BaseService
         $device        = DeviceContext::fromRequest($ipAddress, $userAgent, $deviceId, $deviceName);
         $deviceColumns = $this->deviceSessions()->registerSession((int) $userRow['id'], $device, 'refresh');
 
-        $this->sessionRepo->create([
+        $newSessionId = (int) $this->sessionRepo->create([
             'uuid'               => $sessionUuid,
             'user_id'            => (int) $userRow['id'],
             'device_fingerprint' => $deviceColumns['device_fingerprint'],
@@ -327,6 +327,18 @@ final class AuthService extends BaseService
             'created_at'         => date('Y-m-d H:i:s'),
             'updated_at'         => date('Y-m-d H:i:s'),
         ]);
+
+        // Audit trail for the authentication event (SECURITY_RULES.md §11).
+        $this->securityLogService->recordAuditLog(
+            'TOKEN_REFRESHED',
+            (int) $userRow['id'],
+            'device_session',
+            $newSessionId,
+            ['session_id' => (int) $session['id']],
+            ['session_id' => $newSessionId],
+            'refresh token rotation',
+            $ipAddress,
+        );
 
         $roles = $this->userRepo->getRoleNames((int) $userRow['id']);
         $user  = User::fromArray($userRow, $roles);

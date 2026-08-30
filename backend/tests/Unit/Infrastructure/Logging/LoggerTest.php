@@ -91,4 +91,27 @@ final class LoggerTest extends TestCase
         // If we reach here, the logger handled sensitive keys without throwing.
         $this->assertTrue(true);
     }
+
+    /**
+     * The logger delegates to the shared LogSanitizer — sensitive keys and
+     * token-shaped values are redacted at any depth before they reach Monolog.
+     */
+    public function test_sanitize_redacts_via_shared_sanitizer(): void
+    {
+        $method = new \ReflectionMethod($this->logger, 'sanitize');
+        $method->setAccessible(true);
+
+        $out = $method->invoke($this->logger, [
+            'user_id' => 7,
+            'password' => 'plaintext',
+            'meta' => ['access_token' => 'abc', 'ok' => 1],
+            'blob' => str_repeat('f', 64),
+        ]);
+
+        $this->assertSame(7, $out['user_id']);
+        $this->assertSame('[REDACTED]', $out['password']);
+        $this->assertSame('[REDACTED]', $out['meta']['access_token']);
+        $this->assertSame(1, $out['meta']['ok']);
+        $this->assertSame('[REDACTED]', $out['blob']);
+    }
 }

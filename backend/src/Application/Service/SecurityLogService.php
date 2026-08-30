@@ -6,27 +6,46 @@ namespace QRIVO\Application\Service;
 
 use QRIVO\Domain\Enum\SecurityEventType;
 use QRIVO\Domain\Contract\LoggerInterface;
+use QRIVO\Domain\Security\LogSanitizer;
 use QRIVO\Infrastructure\Repository\AuditLogRepository;
 use QRIVO\Infrastructure\Repository\SecurityEventRepository;
 
 /**
  * Security event and audit logging service.
  *
- * Centralizes all security event recording and audit trail creation.
+ * Centralizes all security event recording and audit trail creation
+ * (PROJECT_SPECIFICATION.md §6.15, SECURITY_RULES.md §10 / §11).
  *
  * Security (SECURITY_RULES.md §9, §10, §11):
- * - details/old_value/new_value must NEVER contain passwords, tokens, or private keys.
- * - The Logger's own sanitize() method provides an additional safety net.
- * - This service is the single point of security event creation.
+ * - Every `details` / `old_value` / `new_value` payload is passed through
+ *   {@see LogSanitizer} before it is persisted — passwords, raw auth secrets,
+ *   private keys and token-shaped values are redacted here, at the single choke
+ *   point, regardless of what the caller passed.
+ * - This service is the single point of security event / audit log creation.
  */
 final class SecurityLogService extends BaseService
 {
+    private readonly LogSanitizer $sanitizer;
+
     public function __construct(
         LoggerInterface                  $logger,
         private readonly SecurityEventRepository $securityEventRepo,
         private readonly AuditLogRepository      $auditLogRepo,
     ) {
         parent::__construct($logger);
+        $this->sanitizer = new LogSanitizer();
+    }
+
+    /**
+     * @param array<string, mixed>|null $data
+     */
+    private function encode(?array $data): ?string
+    {
+        if ($data === null || $data === []) {
+            return null;
+        }
+
+        return json_encode($this->sanitizer->sanitize($data), JSON_UNESCAPED_UNICODE) ?: null;
     }
 
     /**
@@ -49,7 +68,7 @@ final class SecurityLogService extends BaseService
                 'user_id'     => $userId,
                 'ip_address'  => $ipAddress,
                 'user_agent'  => $userAgent,
-                'details'     => !empty($details) ? json_encode($details, JSON_UNESCAPED_UNICODE) : null,
+                'details'     => $this->encode($details),
                 'created_at'  => date('Y-m-d H:i:s'),
             ]);
         } catch (\Throwable $e) {
@@ -84,8 +103,8 @@ final class SecurityLogService extends BaseService
                 'actor_user_id' => $actorUserId,
                 'target_entity' => $targetEntity,
                 'target_id'     => $targetId,
-                'old_value'     => $oldValue !== null ? json_encode($oldValue, JSON_UNESCAPED_UNICODE) : null,
-                'new_value'     => $newValue !== null ? json_encode($newValue, JSON_UNESCAPED_UNICODE) : null,
+                'old_value'     => $this->encode($oldValue),
+                'new_value'     => $this->encode($newValue),
                 'reason'        => $reason,
                 'ip_address'    => $ipAddress,
                 'created_at'    => date('Y-m-d H:i:s'),
@@ -122,8 +141,8 @@ final class SecurityLogService extends BaseService
             'actor_user_id' => $actorUserId,
             'target_entity' => $targetEntity,
             'target_id'     => $targetId,
-            'old_value'     => $oldValue !== null ? json_encode($oldValue, JSON_UNESCAPED_UNICODE) : null,
-            'new_value'     => $newValue !== null ? json_encode($newValue, JSON_UNESCAPED_UNICODE) : null,
+            'old_value'     => $this->encode($oldValue),
+            'new_value'     => $this->encode($newValue),
             'reason'        => $reason,
             'ip_address'    => $ipAddress,
             'created_at'    => date('Y-m-d H:i:s'),

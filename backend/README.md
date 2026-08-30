@@ -43,7 +43,7 @@ backend/
 │   │   ├── Contract/       # Interfaces: RepositoryInterface, PolicyInterface, ServiceInterface, LoggerInterface
 │   │   ├── Attendance/     # AttendanceEligibility, QrPayload, QrValidationResult, RiskAssessment
 │   │   ├── Risk/           # RiskPolicy — resolved weights + thresholds for the scoring engine
-│   │   ├── Security/       # DeviceContext
+│   │   ├── Security/       # DeviceContext, LogSanitizer
 │   │   ├── Contract/       # …, RiskEvaluatorInterface
 │   │   ├── Entity/         # User, DeviceSession, Entity/Academic/* (11), Entity/Schedule/* (6), Entity/Attendance/* (3)
 │   │   ├── Enum/           # UserRole, Permission, AttendanceStatus/Source, SessionStatus, DayOfWeek, QrValidationReason, ChallengeFailureReason, RiskLevel/Outcome/Signal, SecurityEventType
@@ -51,7 +51,7 @@ backend/
 │   ├── Application/
 │   │   ├── DTO/            # Base + Auth DTOs
 │   │   ├── Policy/         # SelfOwnedResourcePolicy, AttendanceAuthorizationPolicy
-│   │   ├── Service/        # Auth*, Authorization*, AttendanceEligibility*, Service/{Academic (11), Schedule (6), Attendance: Session/Qr/Challenge/LiveAttendance/ManualAttendance, Security: DeviceSession/RiskScoring}
+│   │   ├── Service/        # Auth*, Authorization*, SecurityLog*, AttendanceEligibility*, Service/{Academic (11), Schedule (6), Attendance: Session/Qr/Challenge/LiveAttendance/ManualAttendance, Security: DeviceSession/RiskScoring/AuditQuery}
 │   │   └── Validation/     # Validator — input validation rules engine
 │   ├── Infrastructure/
 │   │   ├── Config/         # Config — dot-notation config loader from PHP files + ENV
@@ -60,7 +60,7 @@ backend/
 │   │   └── Repository/     # Base/AbstractCrud/Reference/Schedule/Relationship, Repository/{Academic,Schedule,Attendance}/*
 │   └── Presentation/
 │       └── Http/
-│           ├── Controller/        # Health, Auth/*, Admin/* (16), Teacher/{AttendanceEligibility,Attendance,LiveAttendance}, Student/Attendance
+│           ├── Controller/        # Health, Auth/*, Admin/* (16 + SecurityEvent + AuditLog), Teacher/{AttendanceEligibility,Attendance,LiveAttendance}, Student/Attendance
 │           ├── Middleware/        # Cors, JsonBody, Auth, Authorization, MiddlewarePipeline
 │           ├── Response/          # JsonResponse — standard API envelope
 │           ├── BaseController.php
@@ -371,6 +371,32 @@ Every weight, threshold and window is configuration, never hard-coded (spec
 `RISK_*`) → `RiskSignal::defaultWeight()`**. Migration `008` seeds the
 `system_settings` rows.
 
+### Security events & audit logging (PROJECT_SPECIFICATION.md §6.15, SECURITY_RULES.md §10 / §11)
+
+`SecurityLogService` is the single choke point for `security_events` and
+`audit_logs` (both append-only). Every payload is passed through
+`Domain\Security\LogSanitizer` **before persistence** — a recursive pass that
+redacts sensitive keys at any depth (`password`, `*token*`, `*secret*`,
+`authorization`, `private_key`, `nonce`, `signature`, `fingerprint`, …) and
+token-shaped values (PEM keys, JWTs, long bare hex / base64). The same sanitizer
+runs in `Logger` for file lines and again in `AuditQueryService` on read.
+
+Audit categories: attendance changes (`ATTENDANCE_STATUS_CHANGED` /
+`ATTENDANCE_RECORDED`), administrative actions (`{ENTITY}_CREATED/UPDATED/DELETED`,
+`USER_ROLE_ATTACHED`), authentication events (`LOGIN_SUCCESS`, `LOGOUT`,
+`TOKEN_REFRESHED`), and the `security_events` stream itself.
+
+Read (admin, paginated + filtered, newest first):
+
+| Method | Endpoint | Auth |
+|--------|----------|------|
+| `GET` | `/api/v1/admin/security-events` | `security.event.view` |
+| `GET` | `/api/v1/admin/audit-logs` | `audit.log.view` |
+
+`security-events` filters: `event_type`, `severity`, `user_id`,
+`attendance_session_id`, `from`, `to`. `audit-logs` filters: `event_type`,
+`actor_user_id`, `target_entity`, `target_id`, `from`, `to`.
+
 ---
 
 ## Development Phases
@@ -392,6 +418,7 @@ This backend is being built incrementally:
 - [x] Phase 17 — Mobile QR Attendance *(mobile-only; no backend change)*
 - [x] Phase 18 — Device Session Security
 - [x] Phase 19 — Risk Scoring
+- [x] Phase 20 — Security Events & Audit
 - [ ] ...
 
 See [`docs/PROJECT_SPECIFICATION.md`](../docs/PROJECT_SPECIFICATION.md) for the full phase list.

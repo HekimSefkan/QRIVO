@@ -9,6 +9,51 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 
 ## [Unreleased]
 
+### Added (Security Events & Audit — Phase 20)
+
+Consolidates the trail prior phases built, closes the redaction gap, adds the
+read side (PROJECT_SPECIFICATION.md §6.15, SECURITY_RULES.md §9 / §10 / §11).
+No migration.
+
+**Safe logging — one redaction pass**
+
+`Domain/Security/LogSanitizer` recursively redacts:
+- **keys** whose name marks them sensitive, at any depth — `password`, any
+  `*token*`, `*secret*`, `authorization`, `credential`, `private_key`, `nonce`,
+  `signature`, `fingerprint`, `otp`, `bearer`;
+- **values** that look like credentials regardless of key — PEM private-key
+  blocks, JWTs, ≥40-char bare hex / base64url tokens;
+- over-long strings are truncated.
+
+It is now applied by **`SecurityLogService`** before every `details` /
+`old_value` / `new_value` is persisted (previously the caller's array was
+json-encoded verbatim — the gap), and by **`Logger`** before every file line
+(replacing a shallow top-level-key redactor). `AuditQueryService` re-sanitizes
+on read.
+
+**Audit trail — all four required categories**
+
+| category | events |
+|---|---|
+| attendance changes | `ATTENDANCE_STATUS_CHANGED`, `ATTENDANCE_RECORDED` |
+| administrative actions | `{ENTITY}_CREATED/UPDATED/DELETED`, `USER_ROLE_ATTACHED` |
+| security events | `security_events` rows (`SecurityEventType`) |
+| authentication events | `LOGIN_SUCCESS`, `LOGOUT`, **`TOKEN_REFRESHED`** (new) |
+
+**Read side** — `GET /api/v1/admin/security-events` (`security.event.view`) and
+`GET /api/v1/admin/audit-logs` (`audit.log.view`), paginated + filterable
+(event_type, severity / actor / entity / target_id, `from`/`to` date range),
+newest first. Read-only — both tables stay append-only. Fills the two
+previously-unused view permissions.
+
+**Tests** — `LogSanitizerTest` (key + value redaction, nesting, depth guard),
+`SecurityLogServiceTest` (nothing sensitive reaches the DB; fail-safe recording),
+`AuditTrailRoutesTest` (authz + filters + pagination + read-side re-sanitization),
+`AuditCoverageTest` (all four categories through the Router + global no-secrets
+sweep), `AuthServiceTest` (auth-event audit rows; no raw token in any row),
+`LoggerTest` (delegation). Backend suite: **528 tests, 1189 assertions, 100%
+passing**. `ORIGINAL_SPECIFICATION.md` unchanged.
+
 ### Added (Risk Scoring — Phase 19)
 
 The exact spec model — PROJECT_SPECIFICATION.md §6.14, ATTENDANCE_ALGORITHM.md §9,

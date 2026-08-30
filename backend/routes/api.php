@@ -13,6 +13,7 @@ declare(strict_types=1);
 
 use QRIVO\Presentation\Http\Controller\Admin\AcademicTermController;
 use QRIVO\Presentation\Http\Controller\Admin\AcademicYearController;
+use QRIVO\Presentation\Http\Controller\Admin\AuditLogController;
 use QRIVO\Presentation\Http\Controller\Admin\ClassController;
 use QRIVO\Presentation\Http\Controller\Admin\ClassCourseController;
 use QRIVO\Presentation\Http\Controller\Admin\CourseController;
@@ -22,6 +23,7 @@ use QRIVO\Presentation\Http\Controller\Admin\FacultyController;
 use QRIVO\Presentation\Http\Controller\Admin\ProgramController;
 use QRIVO\Presentation\Http\Controller\Admin\RoomController;
 use QRIVO\Presentation\Http\Controller\Admin\SchoolController;
+use QRIVO\Presentation\Http\Controller\Admin\SecurityEventController;
 use QRIVO\Presentation\Http\Controller\Admin\StudentClassAssignmentController;
 use QRIVO\Presentation\Http\Controller\Admin\StudentController;
 use QRIVO\Presentation\Http\Controller\Admin\StudentCourseController;
@@ -84,6 +86,12 @@ $resource('/api/v1/admin/course-schedules',           CourseScheduleController::
 // student_courses is derived (DD-005) — read-only.
 $r->addRoute('GET', '/api/v1/admin/student-courses',           [StudentCourseController::class, 'index']);
 $r->addRoute('GET', '/api/v1/admin/student-courses/{id:\d+}',  [StudentCourseController::class, 'show']);
+
+// ─── Security event & audit trail (Phase 20 — admin, read-only) ──────────
+// `security.event.view` / `audit.log.view` (ADMIN / SUPER_ADMIN). Append-only:
+// no write endpoint — records are created by SecurityLogService.
+$r->addRoute('GET', '/api/v1/admin/security-events', [SecurityEventController::class, 'index']);
+$r->addRoute('GET', '/api/v1/admin/audit-logs',      [AuditLogController::class, 'index']);
 
 // ─── Attendance eligibility (Phase 9 — teacher) ──────────────────────────
 // "May this teacher open attendance for course/class at this time?" — the
