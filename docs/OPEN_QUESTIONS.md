@@ -75,11 +75,18 @@ The choice is determined by `system_settings`. However, `PENDING_REVIEW` also ap
 
 **Impact:** Authentication module, admin module, onboarding flow
 
-**Status:** ⏳ Awaiting user clarification
+**Interim resolution (Phase 8, 2026-08-30):** The `teachers` / `students`
+endpoints create a **profile that links an existing `users` account** (which
+must be active and approved). On creation the non-privileged `TEACHER` /
+`STUDENT` role is attached to that account (audited as `USER_ROLE_ATTACHED`).
+`user_id` is immutable after creation. This keeps Phase 8 scoped to the 11
+structural entities.
 
----
+**Still open:** how the underlying `users` rows are provisioned (admin form,
+bulk import, invite e-mail, self-registration) and how initial passwords are
+set. No `users` CRUD endpoint exists yet.
 
-## OQ-005: Super Admin vs Admin Scope
+**Status:** 🟡 Interim resolution in place — account provisioning flow still awaiting user clarification
 
 **Source:** RBAC
 
