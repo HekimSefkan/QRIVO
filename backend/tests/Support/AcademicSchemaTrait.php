@@ -133,6 +133,56 @@ trait AcademicSchemaTrait
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE RESTRICT,
                 FOREIGN KEY (program_id) REFERENCES programs(id) ON DELETE RESTRICT
             );
+
+            CREATE TABLE class_courses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, class_id INTEGER NOT NULL, course_id INTEGER NOT NULL,
+                academic_term_id INTEGER NOT NULL, created_at TEXT NOT NULL,
+                UNIQUE (class_id, course_id, academic_term_id),
+                FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE RESTRICT,
+                FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE RESTRICT,
+                FOREIGN KEY (academic_term_id) REFERENCES academic_terms(id) ON DELETE RESTRICT
+            );
+            CREATE TABLE teacher_courses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, teacher_id INTEGER NOT NULL, course_id INTEGER NOT NULL,
+                academic_term_id INTEGER NOT NULL, created_at TEXT NOT NULL,
+                UNIQUE (teacher_id, course_id, academic_term_id),
+                FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE RESTRICT,
+                FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE RESTRICT,
+                FOREIGN KEY (academic_term_id) REFERENCES academic_terms(id) ON DELETE RESTRICT
+            );
+            CREATE TABLE teacher_class_assignments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, teacher_id INTEGER NOT NULL, class_id INTEGER NOT NULL,
+                course_id INTEGER NOT NULL, academic_term_id INTEGER NOT NULL, created_at TEXT NOT NULL,
+                UNIQUE (teacher_id, class_id, course_id, academic_term_id),
+                FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE RESTRICT,
+                FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE RESTRICT,
+                FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE RESTRICT,
+                FOREIGN KEY (academic_term_id) REFERENCES academic_terms(id) ON DELETE RESTRICT
+            );
+            CREATE TABLE student_class_assignments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, student_id INTEGER NOT NULL, class_id INTEGER NOT NULL,
+                academic_term_id INTEGER NOT NULL, enrolled_at TEXT NOT NULL,
+                UNIQUE (student_id, class_id, academic_term_id),
+                FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE RESTRICT,
+                FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE RESTRICT,
+                FOREIGN KEY (academic_term_id) REFERENCES academic_terms(id) ON DELETE RESTRICT
+            );
+            CREATE TABLE student_courses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, student_id INTEGER NOT NULL, course_id INTEGER NOT NULL,
+                class_id INTEGER NOT NULL, academic_term_id INTEGER NOT NULL, created_at TEXT NOT NULL,
+                UNIQUE (student_id, course_id, academic_term_id),
+                FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE RESTRICT,
+                FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE RESTRICT,
+                FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE RESTRICT,
+                FOREIGN KEY (academic_term_id) REFERENCES academic_terms(id) ON DELETE RESTRICT
+            );
+            CREATE TABLE course_schedules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, teacher_class_assignment_id INTEGER NOT NULL, room_id INTEGER NOT NULL,
+                day_of_week INTEGER NOT NULL, start_time TEXT NOT NULL, end_time TEXT NOT NULL,
+                created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                FOREIGN KEY (teacher_class_assignment_id) REFERENCES teacher_class_assignments(id) ON DELETE RESTRICT,
+                FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE RESTRICT
+            );
         SQL);
 
         // Seed roles/permissions from the canonical map.
@@ -259,5 +309,64 @@ trait AcademicSchemaTrait
         $termId = (int) $this->pdo->lastInsertId();
 
         return compact('schoolId', 'facultyId', 'departmentId', 'programId', 'yearId', 'termId');
+    }
+
+    /**
+     * On top of seedHierarchy(): a course, a room, a class, a teacher (+user),
+     * a student (+user). Returns the id bag merged with the hierarchy ids.
+     *
+     * @return array<string, int>
+     */
+    private function seedSchedulingFixtures(): array
+    {
+        $ids = $this->seedHierarchy();
+        $now = '2026-01-01 00:00:00';
+        $ins = fn (string $sql, array $p) => $this->pdo->prepare($sql)->execute($p);
+
+        $ins('INSERT INTO courses (department_id, name, code, created_at, updated_at) VALUES (?, ?, ?, ?, ?)', [$ids['departmentId'], 'Data Structures', 'DS101', $now, $now]);
+        $ids['courseId'] = (int) $this->pdo->lastInsertId();
+
+        $ins('INSERT INTO rooms (school_id, name, code, capacity, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)', [$ids['schoolId'], 'Hall A', 'A1', 100, $now, $now]);
+        $ids['roomId'] = (int) $this->pdo->lastInsertId();
+
+        $ins('INSERT INTO classes (program_id, academic_term_id, name, grade_level, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)', [$ids['programId'], $ids['termId'], 'CE-1A', 1, $now, $now]);
+        $ids['classId'] = (int) $this->pdo->lastInsertId();
+
+        $teacherUser = $this->makeUser('teacher@x.test', ['TEACHER']);
+        $ids['teacherUserId'] = $teacherUser;
+        $ins('INSERT INTO teachers (user_id, department_id, employee_number, created_at, updated_at) VALUES (?, ?, ?, ?, ?)', [$teacherUser, $ids['departmentId'], 'E-1', $now, $now]);
+        $ids['teacherId'] = (int) $this->pdo->lastInsertId();
+
+        $studentUser = $this->makeUser('student@x.test', ['STUDENT']);
+        $ids['studentUserId'] = $studentUser;
+        $ins('INSERT INTO students (user_id, program_id, student_number, enrollment_year, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)', [$studentUser, $ids['programId'], 'S-1', 2025, $now, $now]);
+        $ids['studentId'] = (int) $this->pdo->lastInsertId();
+
+        return $ids;
+    }
+
+    private function scheduleRepo(): \QRIVO\Infrastructure\Repository\ScheduleRepository
+    {
+        return new \QRIVO\Infrastructure\Repository\ScheduleRepository($this->buildConnection());
+    }
+
+    private function referenceRepo(): \QRIVO\Infrastructure\Repository\ReferenceRepository
+    {
+        return new \QRIVO\Infrastructure\Repository\ReferenceRepository($this->buildConnection());
+    }
+
+    private function rowCount(string $table): int
+    {
+        return (int) $this->pdo->query("SELECT COUNT(*) c FROM {$table}")->fetch()['c'];
+    }
+
+    private function securityEventCount(?string $eventType = null): int
+    {
+        if ($eventType === null) {
+            return $this->rowCount('security_events');
+        }
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) AS c FROM security_events WHERE event_type = ?');
+        $stmt->execute([$eventType]);
+        return (int) $stmt->fetch()['c'];
     }
 }

@@ -9,6 +9,69 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 
 ## [Unreleased]
 
+### Added (Course Assignments & Scheduling — Phase 9)
+
+**Migration**
+- `database/migrations/004_create_course_scheduling.sql` — `class_courses`,
+  `teacher_courses`, `teacher_class_assignments`, `student_class_assignments`,
+  `student_courses`, `course_schedules`; InnoDB / utf8mb4; composite unique keys
+  (C-014..C-018); FK `ON DELETE RESTRICT` (FK-20..FK-38); no soft delete
+
+**Entities (`src/Domain/Entity/Schedule/`)**
+- `ClassCourse`, `TeacherCourse`, `TeacherClassAssignment`, `StudentClassAssignment`,
+  `StudentCourse`, `CourseSchedule` (+ `Domain/Enum/DayOfWeek`)
+
+**Repositories**
+- `AbstractCrudRepository` — `createdAtColumn()` / `updatedAtColumn()` overrides so
+  the timestamp-light join tables are handled
+- `ScheduleRepository` — teacher-attendance authorization lookup, room/teacher
+  schedule-conflict detection, and the `student_courses` derivation (DD-005)
+- 6 thin per-table repositories under `.../Repository/Schedule/`
+
+**Services (`src/Application/Service/Schedule/`)**
+- `ClassCourseService`, `TeacherCourseService`, `TeacherClassAssignmentService`,
+  `StudentClassAssignmentService`, `StudentCourseService` (read-only),
+  `CourseScheduleService`
+- `AbstractAcademicService` — added an `afterDelete()` hook
+
+**Relationships enforced (teachers ↔ students ↔ courses ↔ classes ↔ schedules ↔ rooms ↔ terms)**
+- Every assignment row validates its parent references (exist + live) — 422
+- Composite uniqueness on every join table — 422 (DB unique key is the backstop → 409)
+- `teacher_class_assignments` additionally requires a matching `class_courses` +
+  `teacher_courses` (AD-006) so the "teacher/course/class/term" intersection is coherent
+- `course_schedules` rejects room and teacher double-booking on the same day (AD-006) — 409
+- Enrolling a student derives one `student_courses` row per class course; unenrolling
+  or removing a class course prunes them (DD-005)
+
+**Attendance authorization determination (the Phase 9 keystone)**
+- `src/Domain/Attendance/AttendanceEligibility.php` + `Domain/Enum/AttendanceEligibilityReason.php`
+- `src/Application/Service/AttendanceEligibilityService::forTeacher()` — server-side:
+  TEACHER role + profile → `teacher_class_assignments` (steps 3–4) → active/explicit
+  term (step 9) → `course_schedules` covering the day + time (steps 5–8) → returns
+  `authorized`, `reason`, `teacher_class_assignment_id`, `academic_term_id`, `room_id`, `schedule`
+- Probing an unassigned class is logged as a low-severity `UNAUTHORIZED_ACCESS` event
+- Phase 10 will call this and must not create a session on a non-`AUTHORIZED` result
+
+**Authorization & API**
+- Admin REST (`GET|POST` + `GET|PATCH|DELETE /{id}`) under `/api/v1/admin/`:
+  `class-courses`, `teacher-courses`, `teacher-class-assignments`,
+  `student-class-assignments`, `course-schedules`; `student-courses` is `GET`-only.
+  `assignment.course.manage` / `assignment.schedule.manage` (ADMIN / SUPER_ADMIN)
+- `GET /api/v1/teacher/attendance/eligibility?class_id=&course_id=&academic_term_id=&at=`
+  — `attendance.session.start` (TEACHER); returns the eligibility result, creates nothing
+- `Validator` — added the `time` rule (24h `HH:MM` / `HH:MM:SS`)
+
+**Tests (37 new — 280 total, 585 assertions, 100% passing)**
+- `tests/Unit/Application/Service/Schedule/CourseSchedulingServiceTest.php` — CRUD, refs,
+  composite uniqueness, tca prerequisites, room/teacher conflict, `student_courses` sync,
+  read-only rejection, delete guard
+- `tests/Unit/Application/Service/AttendanceEligibilityServiceTest.php` — every eligibility path
+- `tests/Unit/Presentation/Http/Controller/Schedule/SchedulingRoutesTest.php` — Router-dispatched
+  admin chain, RBAC 401/403, eligibility endpoint
+- `tests/Unit/Application/Validation/ValidatorAcademicRulesTest.php` — `time` rule
+
+**Not implemented (per instruction):** dynamic QR, and Phase 10 attendance-session creation.
+
 ### Added (Academic & Institutional Structure — Phase 8)
 
 **Entities (`src/Domain/Entity/Academic/`)**

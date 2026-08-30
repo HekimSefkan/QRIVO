@@ -188,6 +188,54 @@ unresolved.
 
 ---
 
+## AD-006: Course-scheduling integrity rules (Phase 9)
+
+**Source wording:** `database/docs/RELATIONSHIPS.md` §4 describes
+`class_courses`, `teacher_courses`, `teacher_class_assignments` as independent
+M:N tables with only composite-uniqueness constraints (C-014..C-016).
+`course_schedules` has no conflict constraint in the frozen design.
+
+**What was done (Phase 9):**
+
+1. **`teacher_class_assignments` requires coherent prerequisites.** To assign a
+   teacher to teach course *C* to class *K* in term *T*, there must already be:
+   - a `class_courses(K, C, T)` row (the course is offered to that class), and
+   - a `teacher_courses(teacher, C, T)` row (the teacher is responsible for the course).
+   Missing either → HTTP 422 with a clear message.
+
+2. **`course_schedules` rejects double-booking.** A new/updated slot is refused
+   (HTTP 409) when it overlaps, on the same `day_of_week`, with:
+   - another slot in the same room, or
+   - another slot belonging to the same teacher (any of their assignments).
+   Overlap = `existing.start < new.end AND existing.end > new.start`.
+
+3. **`student_courses` is read-only over the API.** It is a derived table
+   (DD-005): rows are materialised from `class_courses` when a student is
+   enrolled in a class and pruned on unenrollment / course removal. Only `GET`
+   endpoints are routed; the service rejects direct writes with HTTP 409.
+
+**Why this is acceptable:**
+
+- The specification (§6.4) states the system must *determine* "which teacher
+  teaches which course, to which class, in which room, at what time" — a
+  `teacher_class_assignment` that contradicts `class_courses` / `teacher_courses`
+  would make that determination incoherent. Rule 1 keeps the intersection valid.
+- `INDEXES.md` explicitly lists the `course_schedules.room_id` index "for room
+  conflict checking", so conflict detection is anticipated by the design.
+  Rule 2 implements it; it changes no schema.
+- DD-005 already assigns the application responsibility for keeping
+  `student_courses` in sync. Rule 3 is the cleanest way to honour that without a
+  second, divergent write path.
+- None of these rules touch the frozen schema, the attendance algorithm, or the
+  security model. They are additive integrity checks with 422/409 semantics.
+
+**Enforced in:**
+`backend/src/Application/Service/Schedule/TeacherClassAssignmentService.php`,
+`.../CourseScheduleService.php`, `.../StudentCourseService.php`,
+`backend/src/Infrastructure/Repository/ScheduleRepository.php`.
+
+---
+
 ## Change protocol
 
 New deviations may be added here **only** after review. A deviation that touches

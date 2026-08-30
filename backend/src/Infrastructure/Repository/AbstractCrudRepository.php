@@ -34,6 +34,18 @@ abstract class AbstractCrudRepository extends BaseRepository
         return true;
     }
 
+    /** Column stamped with the creation time on create(), or null if the table has none. */
+    protected function createdAtColumn(): ?string
+    {
+        return 'created_at';
+    }
+
+    /** Column stamped on every write, or null if the table has none. */
+    protected function updatedAtColumn(): ?string
+    {
+        return 'updated_at';
+    }
+
     /**
      * Columns matched by the `search` filter (LIKE). Empty = search disabled.
      *
@@ -95,8 +107,12 @@ abstract class AbstractCrudRepository extends BaseRepository
     {
         $data = $this->onlyWritable($data);
         $now  = date('Y-m-d H:i:s');
-        $data['created_at'] = $now;
-        $data['updated_at'] = $now;
+        if ($c = $this->createdAtColumn()) {
+            $data[$c] = $now;
+        }
+        if ($u = $this->updatedAtColumn()) {
+            $data[$u] = $now;
+        }
 
         return (int) $this->insert($this->table(), $data);
     }
@@ -110,7 +126,9 @@ abstract class AbstractCrudRepository extends BaseRepository
         if ($data === []) {
             return;
         }
-        $data['updated_at'] = date('Y-m-d H:i:s');
+        if ($u = $this->updatedAtColumn()) {
+            $data[$u] = date('Y-m-d H:i:s');
+        }
 
         $sets = implode(', ', array_map(static fn (string $c): string => "`{$c}` = :{$c}", array_keys($data)));
         $this->db->execute(

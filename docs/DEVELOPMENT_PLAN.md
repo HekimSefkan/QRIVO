@@ -13,15 +13,16 @@
 | 1 — Specification & Architecture | ✅ Complete | `8b56c39` |
 | 2 — Architecture Freeze | ✅ Complete | `a837af2` |
 | 3 — Database Architecture | ✅ Complete | `a837af2` |
-| 4 — Database Migrations | 🔄 Restructured — now incremental per feature phase (see note below) | `001`, `002`, `003` |
+| 4 — Database Migrations | 🔄 Restructured — now incremental per feature phase (see note below) | `001`–`004` |
 | 5 — Backend Foundation | ✅ Complete | `ec1e411` |
 | 6 — Authentication | ✅ Complete | `9c5a378` |
 | 7 — Authorization & RBAC | ✅ Complete | `c4e3863` |
-| 8 — Academic Structure | ✅ Complete | `feat(admin): implement QRIVO academic structure` |
-| 9 — Course Scheduling | ⏭️ Next | — |
-| 10–23 | ⛔ Not started | — |
+| 8 — Academic Structure | ✅ Complete | `8321d43` |
+| 9 — Course Scheduling | ✅ Complete | `feat(schedule): implement QRIVO course scheduling` |
+| 10 — Attendance Sessions | ⏭️ Next | — |
+| 11–23 | ⛔ Not started | — |
 
-**Test status at Phase 8:** 243 tests, 511 assertions, 100% passing (`backend/`).
+**Test status at Phase 9:** 280 tests, 585 assertions, 100% passing (`backend/`).
 
 ### Migration strategy note (deviation AD-001)
 
@@ -41,8 +42,9 @@ Deliberate, reviewed differences from the literal source wording are tracked in
 migrations), AD-002 (login checks password before account-state), AD-003
 (`course_schedules` plural), AD-004 (`PENDING_REVIEW` status — resolved via
 OQ-001), AD-005 (SUPER_ADMIN = full system access; permission names derived from
-spec §6 — interim resolution of OQ-005). `ORIGINAL_SPECIFICATION.md` remains
-unchanged.
+spec §6 — interim resolution of OQ-005), AD-006 (teacher-class-assignment
+prerequisite rule + schedule conflict checks; `student_courses` read-only).
+`ORIGINAL_SPECIFICATION.md` remains unchanged.
 
 ---
 
@@ -224,12 +226,27 @@ Permission names are derived from PROJECT_SPECIFICATION.md §6.
 
 ---
 
-## Phase 9: Course Scheduling
+## Phase 9: Course Scheduling — ✅ COMPLETE
 
-- [ ] class_courses, teacher_courses, teacher_class_assignments
-- [ ] student_class_assignments, student_courses, course_schedule
-- [ ] Teacher-course-class-room-time validation
-- [ ] Authorization and tests
+- [x] `class_courses`, `teacher_courses`, `teacher_class_assignments` — entity, repo, service, validation, admin REST API
+- [x] `student_class_assignments`, `student_courses` (derived — read-only API, kept in sync per DD-005), `course_schedules`
+- [x] Teacher-course-class-room-time validation:
+      - `teacher_class_assignments` requires a matching `class_courses` + `teacher_courses` (coherent intersection — spec §6.4)
+      - `course_schedules` validates `day_of_week` 0–6, `start < end`, room double-booking, teacher double-booking
+- [x] **Attendance authorization determination** — `AttendanceEligibilityService::forTeacher()` answers
+      "may this teacher open attendance for course/class at time T, and in which room?"
+      (ATTENDANCE_ALGORITHM.md §2 steps 2–9, pre-QR); exposed as
+      `GET /api/v1/teacher/attendance/eligibility` (`attendance.session.start`, TEACHER)
+- [x] Authorization: `assignment.course.manage` / `assignment.schedule.manage` (ADMIN / SUPER_ADMIN) on the admin routes; teacher permission on the eligibility route
+- [x] Migration `004_create_course_scheduling.sql` (6 tables, FK RESTRICT, no soft delete)
+- [x] Tests (37 new)
+
+**Notes:**
+- `student_courses` is derived (DD-005): populated from `class_courses` when a student is enrolled,
+  pruned when unenrolled or when a course leaves the class. Its API is read-only.
+- The `teacher_class_assignments` prerequisite rule and the schedule conflict checks are recorded
+  in [`ACCEPTED_DEVIATIONS.md`](ACCEPTED_DEVIATIONS.md) AD-006.
+- Dynamic QR is NOT implemented.
 
 **Commit:** `feat(schedule): implement QRIVO course scheduling`
 
