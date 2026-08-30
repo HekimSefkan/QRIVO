@@ -9,6 +9,28 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 
 ## [Unreleased]
 
+### Added (Final Security & Architecture Audit — Phase 23)
+
+- `docs/FINAL_AUDIT.md` — end-of-project review against every authoritative
+  document. 24-area verification matrix (architecture / algorithm / auth / RBAC
+  / resource authz / QR / nonce / HMAC / challenge-response / replay / duplicate
+  / transactions / device-session / risk / security-events / audit / DB
+  constraints / API / mobile / secrets / errors / logging / tests).
+- **Verdict: no architectural violations.** All 16 differences from the literal
+  source wording are documented and reviewed in `ACCEPTED_DEVIATIONS.md`; none
+  touches a locked decision, the algorithm, the security model, or the schema
+  shape. `ORIGINAL_SPECIFICATION.md` unchanged.
+- Six informational findings recorded (F-1 unwired middleware classes /
+  F-2 no user-provisioning path, OQ-004 / F-3 tests live under `backend/tests/` /
+  F-4 permissive CORS default / F-5 web client not yet built, OQ-006 /
+  F-6 notifications not yet built, OQ-002). None is a security gap or a blocker.
+- Backend suite re-run for the audit: **586 tests, 1505 assertions, 100%
+  passing**.
+- Release readiness: backend + mobile student app are release-ready; web client
+  and notifications remain future phases (API-ready, no architectural change
+  needed). Operator prerequisites documented (seed first SUPER_ADMIN, set real
+  CORS origins + `.env`, run migrations `001`–`008`).
+
 ### Added (Session Close/Cancel + Integration Validation — Phases 15 & 22)
 
 **Session close / cancel (`ATTENDANCE_ALGORITHM.md` §7 — the one gap the
