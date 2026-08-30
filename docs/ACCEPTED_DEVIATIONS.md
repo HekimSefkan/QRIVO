@@ -144,6 +144,50 @@ and a teacher can resolve it via manual attendance. No further action required.
 
 ---
 
+## AD-005: SUPER_ADMIN = full system access; permission catalogue derived from spec §6
+
+**Source wording:** `PROJECT_SPECIFICATION.md` §6.2 requires "permission-based
+authorization" and names the tables `roles`, `permissions`, `role_permissions`,
+`user_roles`, but does **not** enumerate the individual permission names, and
+`OPEN_QUESTIONS.md` OQ-005 flags the SUPER_ADMIN vs ADMIN boundary as
+unresolved.
+
+**What was done (Phase 7):**
+
+1. **SUPER_ADMIN is treated as full system access.**
+   `AuthorizationService::hasPermission()` returns `true` for any permission when
+   the actor holds the `SUPER_ADMIN` role, and `002_seed_rbac_permissions.sql`
+   also grants SUPER_ADMIN every row in `permissions` (both agree). This is the
+   literal reading of `SECURITY_RULES.md` §4 ("SUPER_ADMIN | Full system
+   access").
+
+2. **The permission catalogue is derived from `PROJECT_SPECIFICATION.md` §6**
+   functional requirements — e.g. §6.3 → `academic.*.manage`, §6.5/§6.10 →
+   `attendance.session.*`, §6.9 → `attendance.record.update`, §6.16 →
+   `report.*.view`. The canonical list lives in
+   `backend/src/Domain/Enum/Permission.php` and the role → permission map in
+   `backend/src/Domain/Authorization/RolePermissionMap.php`; the migration is
+   their SQL projection.
+
+**Why this is acceptable:**
+
+- The specification asks for a permission system without dictating names; any
+  concrete instantiation must choose names. They are namespaced, systematic, and
+  each maps to a stated requirement.
+- Full-access SUPER_ADMIN does not preclude the finer OQ-005 question (does
+  SUPER_ADMIN bypass *permission management* constraints?) — that remains open in
+  `OPEN_QUESTIONS.md` and can be tightened later without changing the vocabulary.
+- ADMIN remains strictly permission-controlled (no attendance-run permissions,
+  no `iam.role.assign`), matching "institution-level, permission-controlled".
+
+**Enforced in:** `backend/src/Domain/Enum/Permission.php`,
+`backend/src/Domain/Authorization/RolePermissionMap.php`,
+`backend/src/Application/Service/AuthorizationService.php`,
+`database/migrations/002_seed_rbac_permissions.sql`. Open question tracked in
+`docs/OPEN_QUESTIONS.md` OQ-005.
+
+---
+
 ## Change protocol
 
 New deviations may be added here **only** after review. A deviation that touches

@@ -22,6 +22,10 @@ $r->addRoute('POST', '/api/v1/auth/login',   [AuthController::class, 'login']);
 $r->addRoute('POST', '/api/v1/auth/logout',  [AuthController::class, 'logout']);
 $r->addRoute('POST', '/api/v1/auth/refresh', [AuthController::class, 'refresh']);
 
+// ─── Current actor (Phase 7 — authenticated) ──────────────────────────────
+// Identity is derived server-side from the bearer token, never from the client.
+$r->addRoute('GET', '/api/v1/auth/me', [AuthController::class, 'me']);
+
 // ─── Teacher Attendance (Phases 10–15) ───────────────────────────────────
 // $r->addRoute('POST',  '/api/v1/teacher/attendance/start',                        [AttendanceController::class, 'start']);
 // $r->addRoute('POST',  '/api/v1/teacher/attendance/{id}/close',                   [AttendanceController::class, 'close']);

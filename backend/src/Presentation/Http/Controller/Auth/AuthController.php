@@ -5,20 +5,7 @@ declare(strict_types=1);
 namespace QRIVO\Presentation\Http\Controller\Auth;
 
 use QRIVO\Application\DTO\Auth\LoginRequestDTO;
-use QRIVO\Application\Service\AuthService;
-use QRIVO\Application\Service\LoginAttemptService;
-use QRIVO\Application\Service\SecurityLogService;
 use QRIVO\Application\Validation\Validator;
-use QRIVO\Domain\Exception\TooManyRequestsException;
-use QRIVO\Domain\Exception\UnauthorizedException;
-use QRIVO\Infrastructure\Config\Config;
-use QRIVO\Infrastructure\Database\Connection;
-use QRIVO\Infrastructure\Logging\Logger;
-use QRIVO\Infrastructure\Repository\AuditLogRepository;
-use QRIVO\Infrastructure\Repository\DeviceSessionRepository;
-use QRIVO\Infrastructure\Repository\LoginAttemptRepository;
-use QRIVO\Infrastructure\Repository\SecurityEventRepository;
-use QRIVO\Infrastructure\Repository\UserRepository;
 use QRIVO\Presentation\Http\BaseController;
 use QRIVO\Presentation\Http\Request;
 use QRIVO\Presentation\Http\Response\JsonResponse;
@@ -30,6 +17,7 @@ use QRIVO\Presentation\Http\Response\JsonResponse;
  * - POST /api/v1/auth/login
  * - POST /api/v1/auth/logout
  * - POST /api/v1/auth/refresh
+ * - GET  /api/v1/auth/me      (authenticated — returns the caller's own profile)
  *
  * Responsibilities (Presentation layer only):
  * - Parse and validate request input
@@ -40,17 +28,10 @@ use QRIVO\Presentation\Http\Response\JsonResponse;
  * - Never expose internal error details to the client
  * - Never log raw tokens or passwords
  * - Rate limiting is enforced inside AuthService via LoginAttemptService
+ * - `me` requires a valid bearer token — enforced server-side via authenticate()
  */
 final class AuthController extends BaseController
 {
-    private AuthService $authService;
-
-    public function __construct(Connection $db, Logger $logger, Config $config)
-    {
-        parent::__construct($db, $logger, $config);
-        $this->authService = $this->buildAuthService();
-    }
-
     /**
      * POST /api/v1/auth/login
      *
@@ -72,7 +53,7 @@ final class AuthController extends BaseController
             userAgent: (string) ($request->getHeader('user-agent') ?? ''),
         );
 
-        $result = $this->authService->login($dto);
+        $result = $this->authServiceInstance()->login($dto);
 
         return $this->success($result->toArray(), 'Login successful.');
     }
@@ -88,7 +69,7 @@ final class AuthController extends BaseController
         $rawToken = $request->getBearerToken();
 
         if ($rawToken !== null && $rawToken !== '') {
-            $this->authService->logout($rawToken, $request->getIp());
+            $this->authServiceInstance()->logout($rawToken, $request->getIp());
         }
 
         // Always return success — do not reveal whether token was valid
@@ -109,7 +90,7 @@ final class AuthController extends BaseController
         ]);
 
         $rawRefreshToken = (string) $request->input('refresh_token');
-        $result          = $this->authService->refresh(
+        $result          = $this->authServiceInstance()->refresh(
             $rawRefreshToken,
             $request->getIp(),
             (string) ($request->getHeader('user-agent') ?? ''),
@@ -119,30 +100,23 @@ final class AuthController extends BaseController
     }
 
     /**
-     * Build the AuthService with all required dependencies.
+     * GET /api/v1/auth/me
      *
-     * Note: In a future phase this will be replaced by a proper DI container.
-     * For now, dependencies are wired manually in the controller constructor,
-     * following the same pattern as the existing skeleton.
+     * Authorization: Bearer <access_token>
+     * Returns the authenticated caller's own identity + roles. This endpoint
+     * demonstrates server-side authentication enforcement: the identity comes
+     * only from the validated token, never from a client-supplied id.
      */
-    private function buildAuthService(): AuthService
+    public function me(Request $request): JsonResponse
     {
-        $userRepo         = new UserRepository($this->db);
-        $sessionRepo      = new DeviceSessionRepository($this->db);
-        $attemptRepo      = new LoginAttemptRepository($this->db);
-        $securityEventRepo = new SecurityEventRepository($this->db);
-        $auditLogRepo     = new AuditLogRepository($this->db);
+        $actor = $this->authenticate($request);
 
-        $securityLogService  = new SecurityLogService($this->logger, $securityEventRepo, $auditLogRepo);
-        $loginAttemptService = new LoginAttemptService($this->logger, $attemptRepo, $this->config);
-
-        return new AuthService(
-            $this->logger,
-            $userRepo,
-            $sessionRepo,
-            $loginAttemptService,
-            $securityLogService,
-            $this->config,
-        );
+        return $this->success([
+            'uuid'       => $actor['uuid'],
+            'email'      => $actor['email'],
+            'first_name' => $actor['first_name'],
+            'last_name'  => $actor['last_name'],
+            'roles'      => $actor['roles'],
+        ], 'Authenticated.');
     }
 }

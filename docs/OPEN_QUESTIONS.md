@@ -92,7 +92,18 @@ The choice is determined by `system_settings`. However, `PENDING_REVIEW` also ap
 
 **Impact:** Authorization middleware, permission checks
 
-**Status:** ⏳ Awaiting user clarification
+**Interim resolution (Phase 7, 2026-08-30):** SUPER_ADMIN is treated as **full
+system access** — `AuthorizationService::hasPermission()` short-circuits to
+`true` for SUPER_ADMIN, and `002_seed_rbac_permissions.sql` also grants
+SUPER_ADMIN every permission row (both agree). ADMIN is strictly
+permission-controlled. This is the literal reading of `SECURITY_RULES.md` §4.
+Recorded in `docs/ACCEPTED_DEVIATIONS.md` AD-005.
+
+**Still open:** whether SUPER_ADMIN should also bypass *permission-management*
+constraints (e.g. editing `role_permissions`, or protections around the last
+SUPER_ADMIN account). Does not block current work.
+
+**Status:** 🟡 Interim resolution in place — finer question awaiting user clarification
 
 ---
 

@@ -34,6 +34,7 @@ enum SecurityEventType: string
     // Authorization events
     case UNAUTHORIZED_ACCESS  = 'UNAUTHORIZED_ACCESS';
     case IDOR_ATTEMPT         = 'IDOR_ATTEMPT';
+    case PRIVILEGE_ESCALATION = 'PRIVILEGE_ESCALATION';
 
     // Device events (for future phases)
     case NEW_DEVICE           = 'NEW_DEVICE';

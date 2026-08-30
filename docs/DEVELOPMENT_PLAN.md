@@ -13,13 +13,14 @@
 | 1 — Specification & Architecture | ✅ Complete | `8b56c39` |
 | 2 — Architecture Freeze | ✅ Complete | `a837af2` |
 | 3 — Database Architecture | ✅ Complete | `a837af2` |
-| 4 — Database Migrations | 🔄 Restructured — now incremental per feature phase (see note below) | — |
+| 4 — Database Migrations | 🔄 Restructured — now incremental per feature phase (see note below) | `001`, `002` |
 | 5 — Backend Foundation | ✅ Complete | `ec1e411` |
-| 6 — Authentication | ✅ Complete | `feat(auth): implement QRIVO authentication` |
-| 7 — Authorization & RBAC | ⏭️ Next | — |
-| 8–23 | ⛔ Not started | — |
+| 6 — Authentication | ✅ Complete | `9c5a378` |
+| 7 — Authorization & RBAC | ✅ Complete | `feat(auth): implement QRIVO authorization and RBAC` |
+| 8 — Academic Structure | ⏭️ Next | — |
+| 9–23 | ⛔ Not started | — |
 
-**Test status at Phase 6:** 155 tests, 265 assertions, 100% passing (`backend/`).
+**Test status at Phase 7:** 203 tests, 450 assertions, 100% passing (`backend/`).
 
 ### Migration strategy note (deviation AD-001)
 
@@ -38,7 +39,9 @@ Deliberate, reviewed differences from the literal source wording are tracked in
 [`ACCEPTED_DEVIATIONS.md`](ACCEPTED_DEVIATIONS.md): AD-001 (incremental
 migrations), AD-002 (login checks password before account-state), AD-003
 (`course_schedules` plural), AD-004 (`PENDING_REVIEW` status — resolved via
-OQ-001). `ORIGINAL_SPECIFICATION.md` remains unchanged.
+OQ-001), AD-005 (SUPER_ADMIN = full system access; permission names derived from
+spec §6 — interim resolution of OQ-005). `ORIGINAL_SPECIFICATION.md` remains
+unchanged.
 
 ---
 
@@ -172,14 +175,20 @@ prevent account-state enumeration — see [`ACCEPTED_DEVIATIONS.md`](ACCEPTED_DE
 
 ---
 
-## Phase 7: Authorization & RBAC
+## Phase 7: Authorization & RBAC — ✅ COMPLETE
 
-- [ ] Role-based authorization (SUPER_ADMIN, ADMIN, TEACHER, STUDENT)
-- [ ] Permission-based checks
-- [ ] Resource ownership validation
-- [ ] Relationship-based authorization
-- [ ] IDOR/BOLA protection
-- [ ] Authorization tests
+- [x] Role-based authorization (SUPER_ADMIN, ADMIN, TEACHER, STUDENT) — `AuthorizationService`
+- [x] Permission-based checks — `Permission` enum, `permissions` / `role_permissions` seeded by `002_seed_rbac_permissions.sql`, resolved from the database via `PermissionRepository`
+- [x] Resource ownership validation — `AuthorizationService::requireOwnership()`, `SelfOwnedResourcePolicy`
+- [x] Relationship-based authorization — `RelationshipRepository` + teacher/student predicates (`AttendanceAuthorizationPolicy`); enforcement tables land in Phase 8 (AD-001), resolver is deny-by-default until then
+- [x] IDOR/BOLA protection — ownership guards log `IDOR_ATTEMPT`; relationship guards log `UNAUTHORIZED_ACCESS`
+- [x] Privilege-escalation protection — `guardRoleAssignment()` (no self-escalation; only SUPER_ADMIN grants SUPER_ADMIN); denials log `PRIVILEGE_ESCALATION`
+- [x] Server-side enforcement points — `BaseController::authenticate()` + `authorization()`, `AuthMiddleware`, `AuthorizationMiddleware`; `GET /api/v1/auth/me`
+- [x] Authorization tests (48 new)
+
+**Note:** SUPER_ADMIN is treated as full system access (SECURITY_RULES.md §4) — interim
+resolution of OQ-005, recorded there and in [`ACCEPTED_DEVIATIONS.md`](ACCEPTED_DEVIATIONS.md) AD-005.
+Permission names are derived from PROJECT_SPECIFICATION.md §6.
 
 **Commit:** `feat(auth): implement QRIVO authorization and RBAC`
 

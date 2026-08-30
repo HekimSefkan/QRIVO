@@ -9,6 +9,56 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 
 ## [Unreleased]
 
+### Added (Authorization & RBAC — Phase 7)
+
+**Domain Layer**
+- `src/Domain/Enum/Permission.php` — 28-permission vocabulary; names derived from `PROJECT_SPECIFICATION.md` §6
+- `src/Domain/Authorization/RolePermissionMap.php` — canonical role → permission map (single source of truth for the seed migration and the test suite)
+- `src/Domain/Enum/SecurityEventType.php` — added `PRIVILEGE_ESCALATION`
+
+**Application Layer**
+- `src/Application/Service/AuthorizationService.php` — server-side authorization engine covering all four layers:
+  - **role-based** — `hasRole` / `hasAnyRole` / `requireRole` (SUPER_ADMIN / ADMIN / TEACHER / STUDENT)
+  - **permission-based** — `hasPermission` / `requirePermission`; permissions resolved from the database (`user_roles → role_permissions → permissions`), never from client input; SUPER_ADMIN = full access (SECURITY_RULES.md §4)
+  - **resource ownership** — `ownsResource` / `requireOwnership` with optional role bypass; failures logged as `IDOR_ATTEMPT`
+  - **relationship-based** — `teacherCanAccessClassCourse` / `teacherCanAccessClass` / `teacherCanAccessCourse` / `studentEnrolledInCourse` / `studentEnrolledInClass`; failures logged as `UNAUTHORIZED_ACCESS` / `UNAUTHORIZED_ATTENDANCE`
+  - **privilege escalation** — `guardRoleAssignment` (no self-modification; only SUPER_ADMIN grants SUPER_ADMIN); failures logged as `PRIVILEGE_ESCALATION`
+  - every denial raises a **generic** `ForbiddenException` (HTTP 403) — the failing check is never disclosed to the client
+- `src/Application/Policy/SelfOwnedResourcePolicy.php` — `PolicyInterface` implementation for resource ownership (IDOR/BOLA)
+- `src/Application/Policy/AttendanceAuthorizationPolicy.php` — `PolicyInterface` implementation composing role + permission + relationship + ownership for attendance abilities
+
+**Infrastructure Layer**
+- `src/Infrastructure/Repository/PermissionRepository.php` — RBAC read access (`getPermissionNamesForUser`, `getPermissionNamesForRoleNames`, `getRoleNamesForUser`)
+- `src/Infrastructure/Repository/RelationshipRepository.php` — teacher/student relationship lookups against the assignment tables (per `RELATIONSHIPS.md` §8); **deny-by-default** (never fail-open) until the Phase 8 tables exist (AD-001)
+
+**Presentation Layer**
+- `src/Presentation/Http/BaseController.php` — added `authenticate()` (bearer token → validated actor context, re-checked against the database every request) and `authorization()` / `authServiceInstance()` factory helpers; the sanctioned server-side enforcement entry point for all future controllers
+- `src/Presentation/Http/Middleware/AuthorizationMiddleware.php` — route-level role/permission gate; fails closed (401 without `auth_user`, 403 on unmet requirement)
+- `src/Presentation/Http/Controller/Auth/AuthController.php` — added `GET /api/v1/auth/me` (identity derived only from the token); refactored service wiring onto `BaseController`
+- `routes/api.php` — `GET /api/v1/auth/me` registered
+
+**Database Migration**
+- `database/migrations/002_seed_rbac_permissions.sql` — seeds the `permissions` catalogue and `role_permissions` mapping (idempotent); mirrors `RolePermissionMap`
+
+**Security properties**
+- All authorization decisions are server-side; frontend visibility is never a security boundary
+- IDOR / BOLA: resource-scoped actions require an ownership **or** relationship check, not merely a role
+- Privilege escalation: role/permission guards deny by default; role-assignment guard blocks self-escalation and non-SUPER_ADMIN granting SUPER_ADMIN
+- Client-supplied role/permission/ownership claims are never trusted — roles and permissions are re-resolved from the database
+- Denials are logged to `security_events` (`IDOR_ATTEMPT`, `UNAUTHORIZED_ACCESS`, `PRIVILEGE_ESCALATION`, `UNAUTHORIZED_ATTENDANCE`) and return a generic 403
+
+**Tests (48 new — 203 total, 450 assertions, 100% passing)**
+- `tests/Unit/Application/Service/AuthorizationServiceTest.php` — RBAC, permission checks, ownership/IDOR, relationship checks, privilege escalation, denial hygiene, security-event logging
+- `tests/Unit/Application/Policy/AuthorizationPolicyTest.php` — `SelfOwnedResourcePolicy` and `AttendanceAuthorizationPolicy`
+- `tests/Unit/Presentation/Http/Middleware/AuthorizationMiddlewareTest.php` — route-level gate (401/403/200 paths)
+- `tests/Unit/Domain/Authorization/RolePermissionMapTest.php` — map integrity and least-privilege separation
+- `tests/Support/RbacSchemaTrait.php` — shared in-memory RBAC schema seeded from `RolePermissionMap`
+
+**Documentation**
+- `docs/ACCEPTED_DEVIATIONS.md` — added **AD-005** (SUPER_ADMIN = full system access; permission names derived from spec §6 — interim resolution of OQ-005)
+- `docs/OPEN_QUESTIONS.md` — OQ-005 given an interim resolution; finer permission-management question left open
+- `docs/DEVELOPMENT_PLAN.md` — Phase 7 marked complete; status table updated (203 tests)
+
 ### Documentation (Authentication handoff — 2026-08-30)
 
 - `docs/ACCEPTED_DEVIATIONS.md` — new; records four reviewed deviations from the literal source wording:
