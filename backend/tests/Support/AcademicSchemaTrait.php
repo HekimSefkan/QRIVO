@@ -489,9 +489,35 @@ trait AcademicSchemaTrait
     /** WAITING/SYSTEM attendance record for a session + the fixture student. */
     private function waitingRecord(int $sessionId): void
     {
+        $this->attendanceRecord($sessionId, $this->ids['studentId'], 'WAITING', 'SYSTEM');
+    }
+
+    private function attendanceRecord(int $sessionId, int $studentId, string $status = 'WAITING', string $source = 'SYSTEM', ?string $markedAt = null): void
+    {
         $now = '2026-01-01 00:00:00';
-        $this->pdo->prepare('INSERT INTO attendance_records (attendance_session_id, student_id, status, source, created_at, updated_at) VALUES (?,?,?,?,?,?)')
-            ->execute([$sessionId, $this->ids['studentId'], 'WAITING', 'SYSTEM', $now, $now]);
+        $this->pdo->prepare('INSERT INTO attendance_records (attendance_session_id, student_id, status, source, marked_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?)')
+            ->execute([$sessionId, $studentId, $status, $source, $markedAt, $now, $now]);
+    }
+
+    /**
+     * Create a student (+user, +class enrollment) with a given name/number and an
+     * attendance record in $status for $sessionId. Returns the student id.
+     */
+    private function rosterStudent(int $sessionId, string $first, string $last, string $number, string $status = 'WAITING', string $source = 'SYSTEM'): int
+    {
+        $now = '2026-01-01 00:00:00';
+        $this->pdo->prepare('INSERT INTO users (uuid, email, first_name, last_name) VALUES (?,?,?,?)')
+            ->execute([bin2hex(random_bytes(6)) . '-u', "{$number}@x.test", $first, $last]);
+        $uid = (int) $this->pdo->lastInsertId();
+        $this->pdo->prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, (SELECT id FROM roles WHERE name = ?))')->execute([$uid, 'STUDENT']);
+        $this->pdo->prepare('INSERT INTO students (user_id, program_id, student_number, enrollment_year, created_at, updated_at) VALUES (?,?,?,?,?,?)')
+            ->execute([$uid, $this->ids['programId'], $number, 2025, $now, $now]);
+        $sid = (int) $this->pdo->lastInsertId();
+        $this->pdo->prepare('INSERT INTO student_class_assignments (student_id, class_id, academic_term_id, enrolled_at) VALUES (?,?,?,?)')
+            ->execute([$sid, $this->ids['classId'], $this->ids['termId'], $now]);
+        $this->attendanceRecord($sessionId, $sid, $status, $source, $status === 'WAITING' ? null : $now);
+
+        return $sid;
     }
 
     /**

@@ -21,11 +21,12 @@
 | 9 — Course Scheduling | ✅ Complete | `15942d7` |
 | 10 — Attendance Sessions | ✅ Complete | `f3438f7` |
 | 11 — Dynamic QR System | ✅ Complete | `9cb3ba1` |
-| 12 — Challenge-Response Attendance | ✅ Complete | `feat(security): implement QRIVO challenge-response attendance` |
-| 13 — Teacher Live Attendance | ⏭️ Next | — |
-| 14–23 | ⛔ Not started | — |
+| 12 — Challenge-Response Attendance | ✅ Complete | `a512561` |
+| 13 — Teacher Live Attendance | ✅ Complete (backend) | `feat(teacher): implement QRIVO live attendance` |
+| 14 — Manual Attendance | ⏭️ Next | — |
+| 15–23 | ⛔ Not started | — |
 
-**Test status at Phase 12:** 360 tests, 749 assertions, 100% passing (`backend/`).
+**Test status at Phase 13:** 377 tests, 812 assertions, 100% passing (`backend/`).
 
 ### Migration strategy note (deviation AD-001)
 
@@ -50,7 +51,8 @@ prerequisite rule + schedule conflict checks; `student_courses` read-only),
 AD-007 (session `end_time` NULL until close; `expires_at` = scheduled meeting
 end; duplicate-active-session scope), AD-008 (`qr_used_nonces` nonce store; QR
 wire format; QR TTL config — interim OQ-008), AD-009 (per-student QR-nonce replay;
-basic Phase-12 risk evaluator; challenge TTL config).
+basic Phase-12 risk evaluator; challenge TTL config), AD-010 (live attendance =
+AJAX polling; WebSocket deferred — no WS server in the frozen stack).
 `ORIGINAL_SPECIFICATION.md` remains unchanged.
 
 ---
@@ -352,13 +354,28 @@ Permission names are derived from PROJECT_SPECIFICATION.md §6.
 
 ---
 
-## Phase 13: Teacher Live Attendance
+## Phase 13: Teacher Live Attendance — ✅ COMPLETE (backend)
 
-- [ ] Teacher attendance dashboard
-- [ ] QR display, session info, student list
-- [ ] Live counters (TOTAL, WAITING, PRESENT, ABSENT, LATE, EXCUSED)
-- [ ] WebSocket or AJAX polling
-- [ ] Responsive layout
+- [x] Teacher attendance dashboard data — `GET /api/v1/teacher/attendance/{id}/live`
+      (session info + course/class/room/status + remaining time + current QR + counters + student list)
+- [x] QR display, session info, student list — all in the snapshot; student rows carry
+      name, number, status, source (QR/MANUAL), marked time (PROJECT_SPECIFICATION.md §6.8)
+- [x] Live counters — `TOTAL, WAITING, PRESENT, ABSENT, LATE, EXCUSED` (+ `PENDING_REVIEW`)
+      (ATTENDANCE_ALGORITHM.md §8)
+- [x] Realtime — **AJAX polling** (the spec's documented fallback; the frozen stack has no
+      WebSocket server): `GET .../live/counters` (lightweight, `students_version` change signal,
+      `poll_interval_ms`) + `GET .../live/students` (`search` / `status` / `updated_since` filters).
+      See [`ACCEPTED_DEVIATIONS.md`](ACCEPTED_DEVIATIONS.md) AD-010.
+- [x] Search + filter support (§6.8)
+- [x] Backend authorization on **every** request — `attendance.live.view` (TEACHER) **and**
+      session-ownership re-check on each call; a non-owner → 403 + `IDOR_ATTEMPT`
+      (ARCHITECTURE_FREEZE.md §2.12). Only this session's students are returned; `session_secret`
+      is never exposed.
+- [x] Tests (17 new) — snapshot / counters / students, ownership on every endpoint, filters,
+      no cross-session leakage, delta version, and an end-to-end check that a QR attendance
+      shows up in the live view.
+- [ ] Responsive layout — a web-client concern (OQ-006); the API returns every piece §6.8's
+      desktop and mobile layouts need.
 
 **Commit:** `feat(teacher): implement QRIVO live attendance`
 

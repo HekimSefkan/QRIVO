@@ -33,6 +33,7 @@ use QRIVO\Presentation\Http\Controller\HealthController;
 use QRIVO\Presentation\Http\Controller\Student\AttendanceController as StudentAttendanceController;
 use QRIVO\Presentation\Http\Controller\Teacher\AttendanceController;
 use QRIVO\Presentation\Http\Controller\Teacher\AttendanceEligibilityController;
+use QRIVO\Presentation\Http\Controller\Teacher\LiveAttendanceController;
 
 // ─── Health ──────────────────────────────────────────────────────────────────
 $r->addRoute('GET', '/api/v1/health', [HealthController::class, 'check']);
@@ -97,6 +98,12 @@ $r->addRoute('GET',  '/api/v1/teacher/attendance/{id:\d+}',    [AttendanceContro
 // ─── Dynamic QR (Phase 11) ──────────────────────────────────────────────
 // Teacher: current short-lived HMAC-SHA256 signed QR for their ACTIVE session.
 $r->addRoute('GET',  '/api/v1/teacher/attendance/{id:\d+}/qr', [AttendanceController::class, 'qr']);
+
+// ─── Teacher live attendance (Phase 13) ─────────────────────────────────
+// AJAX polling; session ownership re-checked on every request.
+$r->addRoute('GET', '/api/v1/teacher/attendance/{id:\d+}/live',          [LiveAttendanceController::class, 'snapshot']);
+$r->addRoute('GET', '/api/v1/teacher/attendance/{id:\d+}/live/counters', [LiveAttendanceController::class, 'counters']);
+$r->addRoute('GET', '/api/v1/teacher/attendance/{id:\d+}/live/students', [LiveAttendanceController::class, 'students']);
 // Student: preflight validation of a scanned QR (non-consuming; no attendance created).
 $r->addRoute('POST', '/api/v1/student/attendance/qr/verify',   [StudentAttendanceController::class, 'verifyQr']);
 

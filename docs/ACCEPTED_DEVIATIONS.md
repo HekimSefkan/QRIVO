@@ -379,6 +379,39 @@ Full risk engine tracked as Phase 19.
 
 ---
 
+## AD-010: Live attendance realtime = AJAX polling (Phase 13)
+
+**Source wording:** `ATTENDANCE_ALGORITHM.md` §8 and `PROJECT_SPECIFICATION.md`
+§6.8: "**Preferred:** WebSocket (if stable and reliable). **Fallback:** AJAX
+polling (2-5 second intervals)."
+
+**What was done (Phase 13):** the **AJAX polling** path — the spec's explicit
+fallback — is implemented. The frozen technology stack (`ARCHITECTURE_RULES.md`
+§1.1: PHP 8.3+, MySQL, PDO, Composer, **REST API / JSON**) contains no
+persistent-process / WebSocket server, and `ARCHITECTURE_FREEZE.md` §4 lists only
+REST endpoints. Standing up a WebSocket server (Ratchet / Swoole / an external
+broker) would be a new infrastructure component — an architecture change
+requiring approval.
+
+Endpoints (`attendance.live.view`, TEACHER, session-owner only):
+- `GET /api/v1/teacher/attendance/{id}/live` — full snapshot for the initial render
+- `GET .../live/counters` — the 2-5 s poll payload: counters + `session_status` +
+  `remaining_seconds` + `students_version` (a cheap change signal) + `poll_interval_ms`
+- `GET .../live/students` — the roster, re-fetched when `students_version` changes;
+  `search` / `status` / `updated_since` filters
+
+**Why this is acceptable:** it is precisely the mechanism the spec names as the
+fallback; it uses only the frozen REST/JSON stack; the `students_version` signal
+keeps the poll cheap; and the endpoint contract (`{ session, qr, counters,
+students }`) is WebSocket-ready — a future WS layer would push the same payloads.
+
+**Enforced in:** `backend/src/Application/Service/Attendance/LiveAttendanceService.php`,
+`backend/src/Presentation/Http/Controller/Teacher/LiveAttendanceController.php`.
+WebSocket upgrade tracked as a possible future enhancement; `OQ-006` (web client
+technology) is the related open question.
+
+---
+
 ## Change protocol
 
 New deviations may be added here **only** after review. A deviation that touches

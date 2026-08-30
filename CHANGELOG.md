@@ -9,6 +9,51 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 
 ## [Unreleased]
 
+### Added (Teacher Live Attendance — Phase 13)
+
+No migration — read-only over existing tables.
+
+**Service — `Application/Service/Attendance/LiveAttendanceService`**
+- `snapshot()` — session info (course / class / room / status / start / expiry /
+  `remaining_seconds`) + current QR (when ACTIVE, via `QrService::generate`) +
+  live counters + the filtered student roster
+- `counters()` — the lightweight poll payload: `counters`, `session_status`,
+  `remaining_seconds`, `students_version`, `server_time`
+- `students()` — roster only, for a delta refresh
+- **`requireOwnedSession()` runs on every call** — the caller must be the TEACHER
+  who owns that session (else 403 + `IDOR_ATTEMPT`); missing session → 404. Only
+  this session's students are ever returned; `session_secret` is never in a response.
+- Live counters: `TOTAL` + one per attendance state — `WAITING, PRESENT, ABSENT,
+  LATE, EXCUSED, PENDING_REVIEW` (ATTENDANCE_ALGORITHM.md §8)
+
+**Repository — `AttendanceRecordRepository`**
+- `liveRoster()` — one row per student (name / number / status / source / marked time);
+  `search` (number + first/last name, `LIKE`), `status`, `updated_since` filters
+- `rosterVersion()` — `"{total}:{marked}:{maxUpdatedAt}"` change signal for delta polling
+
+**Realtime architecture — AJAX polling** (the spec's documented fallback; the
+frozen stack has no WebSocket server — see `ACCEPTED_DEVIATIONS.md` AD-010).
+Clients poll `counters` every `poll_interval_ms` and re-fetch `students` when
+`students_version` changes. The endpoint contract is WebSocket-ready.
+
+**API** (`attendance.live.view`, TEACHER)
+- `GET /api/v1/teacher/attendance/{id}/live`
+- `GET /api/v1/teacher/attendance/{id}/live/counters`
+- `GET /api/v1/teacher/attendance/{id}/live/students`
+
+**Tests (17 new — 377 total, 812 assertions, 100% passing)**
+- `LiveAttendanceServiceTest` — snapshot shape, all counters, no `session_secret`,
+  no QR block when not ACTIVE, ownership enforced on **every** method (3× `IDOR_ATTEMPT`),
+  no-profile teacher, 404, search / status filters, no cross-session leakage,
+  version changes on transition, and an end-to-end run of the challenge-response
+  flow that shows a student flipping `WAITING → PRESENT` in the live view
+- `LiveAttendanceRoutesTest` — Router-dispatched: owner 200 on all 3 endpoints,
+  unauthenticated 401 on all 3, student 403 on all 3, other-teacher 403 on all 3
+  (+ `IDOR_ATTEMPT`), HTTP filters
+
+**Not implemented:** responsive UI (web-client / OQ-006); WebSocket transport
+(AD-010).
+
 ### Added (Challenge-Response Attendance — Phase 12)
 
 **Migration**
