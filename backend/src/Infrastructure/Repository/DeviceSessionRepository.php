@@ -84,4 +84,105 @@ final class DeviceSessionRepository extends BaseRepository
             ['now' => $now, 'now2' => $now, 'id' => $sessionId]
         );
     }
+
+    // ─── Device session security (Phase 18) ──────────────────────────────────
+
+    /**
+     * Record activity on a session: refresh `last_active_at` and, when the
+     * request came from a new IP, update `ip_address` so a change is only ever
+     * flagged once.
+     */
+    public function touchActivity(int $sessionId, ?string $ipAddress): void
+    {
+        $now = date('Y-m-d H:i:s');
+
+        if ($ipAddress === null || $ipAddress === '') {
+            $this->db->execute(
+                'UPDATE `device_sessions` SET `last_active_at` = :now, `updated_at` = :now2 WHERE `id` = :id',
+                ['now' => $now, 'now2' => $now, 'id' => $sessionId],
+            );
+            return;
+        }
+
+        $this->db->execute(
+            'UPDATE `device_sessions`
+                SET `last_active_at` = :now, `ip_address` = :ip, `updated_at` = :now2
+              WHERE `id` = :id',
+            ['now' => $now, 'ip' => $ipAddress, 'now2' => $now, 'id' => $sessionId],
+        );
+    }
+
+    /**
+     * Number of currently usable sessions (not revoked, not expired) for a user.
+     */
+    public function countActiveForUser(int $userId): int
+    {
+        $row = $this->db->fetchOne(
+            'SELECT COUNT(*) AS c FROM `device_sessions`
+              WHERE `user_id` = :uid AND `revoked_at` IS NULL AND `expires_at` > :now',
+            ['uid' => $userId, 'now' => date('Y-m-d H:i:s')],
+        );
+
+        return (int) ($row['c'] ?? 0);
+    }
+
+    /**
+     * Has this user ever authenticated from a session carrying this exact
+     * fingerprint? Includes revoked / expired sessions — "have we seen this
+     * device before".
+     */
+    public function userHasSeenFingerprint(int $userId, string $fingerprint): bool
+    {
+        return $this->db->fetchOne(
+            'SELECT 1 FROM `device_sessions`
+              WHERE `user_id` = :uid AND `device_fingerprint` = :fp LIMIT 1',
+            ['uid' => $userId, 'fp' => $fingerprint],
+        ) !== null;
+    }
+
+    /**
+     * Does the user have any prior session at all (used to distinguish a first
+     * ever login from a genuinely new device)?
+     */
+    public function userHasAnySession(int $userId): bool
+    {
+        return $this->db->fetchOne(
+            'SELECT 1 FROM `device_sessions` WHERE `user_id` = :uid LIMIT 1',
+            ['uid' => $userId],
+        ) !== null;
+    }
+
+    /**
+     * Did the user have any session created before this one?
+     */
+    public function userHasSessionBefore(int $userId, int $sessionId): bool
+    {
+        return $this->db->fetchOne(
+            'SELECT 1 FROM `device_sessions` WHERE `user_id` = :uid AND `id` < :sid LIMIT 1',
+            ['uid' => $userId, 'sid' => $sessionId],
+        ) !== null;
+    }
+
+    /**
+     * Has this fingerprint appeared on an earlier session for this user?
+     */
+    public function userHasEarlierSessionWithFingerprint(int $userId, string $fingerprint, int $sessionId): bool
+    {
+        return $this->db->fetchOne(
+            'SELECT 1 FROM `device_sessions`
+              WHERE `user_id` = :uid AND `device_fingerprint` = :fp AND `id` < :sid LIMIT 1',
+            ['uid' => $userId, 'fp' => $fingerprint, 'sid' => $sessionId],
+        ) !== null;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function findRow(int $sessionId): ?array
+    {
+        return $this->db->fetchOne(
+            'SELECT * FROM `device_sessions` WHERE `id` = :id LIMIT 1',
+            ['id' => $sessionId],
+        );
+    }
 }

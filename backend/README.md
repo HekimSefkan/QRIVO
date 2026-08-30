@@ -152,9 +152,9 @@ All endpoints are versioned under `/api/v1/`.
 | Method | Endpoint              | Auth          | Description         |
 |--------|-----------------------|---------------|---------------------|
 | `GET`  | `/api/v1/health`      | none          | System health check |
-| `POST` | `/api/v1/auth/login`  | none          | User login (Argon2id, rate limited) |
+| `POST` | `/api/v1/auth/login`  | none          | User login (Argon2id, rate limited). Optional `X-Device-Id` / `X-Device-Name` headers register the device (§6.13) |
 | `POST` | `/api/v1/auth/logout` | Bearer        | Logout / token invalidation |
-| `POST` | `/api/v1/auth/refresh`| refresh token | Rotate tokens (reuse detection) |
+| `POST` | `/api/v1/auth/refresh`| refresh token | Rotate tokens (reuse detection). Honours the same `X-Device-*` headers |
 | `GET`  | `/api/v1/auth/me`     | Bearer        | Authenticated caller's identity + roles |
 | `GET`  | `/api/v1/student/dashboard`          | Bearer (student) | Profile + today's schedule + attendance summary |
 | `GET`  | `/api/v1/student/profile`           | Bearer (student) | Caller's own student profile |
@@ -316,6 +316,27 @@ Services **must not** access the database directly — use repositories.
 - CORS configured via environment variables — not hard-coded
 - RBAC + resource-level + relationship-based authorization *(implemented in auth phase)*
 
+### Device & session security (PROJECT_SPECIFICATION.md §6.13)
+
+Every authenticated session is a `device_sessions` row (hashed tokens only). On
+login/refresh the server derives a device **fingerprint** —
+`sha256(X-Device-Id | User-Agent)`, never sent by the client — and stores it with
+an optional `X-Device-Name`. On every authenticated request `DeviceSessionService`:
+
+- enforces an optional **idle timeout** (`SECURITY_SESSION_IDLE_TIMEOUT`) on top
+  of the absolute `expires_at`;
+- compares the request fingerprint to the session's — a mismatch always records a
+  `SUSPICIOUS_DEVICE` event and feeds a `DEVICE_MISMATCH` risk signal, and is
+  rejected (401) only when `SECURITY_ENFORCE_DEVICE_BINDING=true`;
+- records a `NEW_DEVICE` event when a user authenticates from an unseen
+  fingerprint, and a `SUSPICIOUS_DEVICE` event when active sessions exceed
+  `SECURITY_MAX_ACTIVE_SESSIONS`.
+
+The attendance challenge-response pipeline (step 12) folds these device signals
+into risk scoring (step 13). Fingerprints are signals only — never an
+authorization input. Thresholds live in `config/security.php` (not hard-coded);
+`.env` keys `SECURITY_*`.
+
 ---
 
 ## Development Phases
@@ -334,6 +355,8 @@ This backend is being built incrementally:
 - [x] Phase 14 — Manual Attendance
 - [ ] Phase 15 — Session Close / Cancel *(deferred — skipped for now)*
 - [x] Phase 16 — Mobile Application Foundation *(backend: student self-service)*
+- [x] Phase 17 — Mobile QR Attendance *(mobile-only; no backend change)*
+- [x] Phase 18 — Device Session Security
 - [ ] ...
 
 See [`docs/PROJECT_SPECIFICATION.md`](../docs/PROJECT_SPECIFICATION.md) for the full phase list.

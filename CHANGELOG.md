@@ -9,6 +9,50 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 
 ## [Unreleased]
 
+### Added (Device Session Security — Phase 18)
+
+Implements PROJECT_SPECIFICATION.md §6.13 using only the frozen `device_sessions`
+schema — **no migration** (every column already exists in `001`).
+
+**New**
+
+| unit | file |
+|---|---|
+| value object | `Domain/Security/DeviceContext` — server-derived `sha256(X-Device-Id \| User-Agent)` fingerprint; a client never sends or is trusted for the fingerprint (SECURITY_RULES.md §1) |
+| service | `Application/Service/Security/DeviceSessionService` — registration, new-device / multi-device / fingerprint-mismatch / IP-change detection, idle timeout, and the attendance risk signals |
+| config | `config/security.php` — `max_active_sessions`, `enforce_fingerprint_binding`, `idle_timeout_seconds` (spec §6.14: configuration, never hard-coded) |
+
+**Integration**
+
+- **Authentication** — `AuthService::login` / `refresh` persist
+  `device_fingerprint` + `device_name` and emit `NEW_DEVICE` /
+  `SUSPICIOUS_DEVICE` events; `AuthService::validateToken` (+ `BaseController`)
+  enforce the idle timeout and fingerprint binding on every authenticated
+  request and record activity. New request headers: `X-Device-Id`,
+  `X-Device-Name` (both optional).
+- **Attendance** — `ChallengeService` step 12 now gathers device risk signals
+  (`DEVICE_MISMATCH`, `MULTIPLE_ACTIVE_DEVICES`, `NEW_DEVICE`) for the in-flight
+  attempt.
+- **Security events** — all detections flow through `SecurityLogService` using
+  the existing `NEW_DEVICE` / `SUSPICIOUS_DEVICE` types; details never contain
+  tokens or secrets.
+- **Risk scoring** — `RiskEvaluatorInterface::evaluate` gains a `$context`
+  argument; `RiskEvaluationService` folds `device_signals` into the level /
+  outcome (`DEVICE_MISMATCH` → HIGH → `PENDING_REVIEW`; others → MEDIUM →
+  `PRESENT` + `SECURITY_EVENT`) and records them in `risk_assessments.signals`.
+
+**Behaviour**
+
+Fingerprint binding is **log-only by default** — a mismatch always produces a
+`SUSPICIOUS_DEVICE` event and a risk signal, and is rejected (401) only when
+`SECURITY_ENFORCE_DEVICE_BINDING=true` (**AD-013**). The device fingerprint is
+never an authorization input.
+
+**Tests** — `DeviceSessionServiceTest`, `AuthServiceDeviceSessionTest`,
+`DeviceSessionRoutesTest` (full HTTP stack), and device-risk cases in
+`ChallengeServiceTest`. Backend suite: **451 tests, 989 assertions, 100%
+passing**. `ORIGINAL_SPECIFICATION.md` unchanged.
+
 ### Added (Mobile QR Attendance — Phase 17)
 
 Mobile-only. **No backend change** — the student attendance endpoints

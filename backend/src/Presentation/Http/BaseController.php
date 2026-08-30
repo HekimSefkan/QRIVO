@@ -54,7 +54,11 @@ abstract class BaseController
     /**
      * Validate the request's bearer token and return the actor context.
      *
-     * @return array{user_id:int, uuid:string, email:string, first_name:string, last_name:string, roles:string[], session_id:int, ip_address:string, user_agent:string}
+     * Device/session rules (PROJECT_SPECIFICATION.md §6.13) are enforced here:
+     * the request's {@see DeviceContext} is handed to token validation, which
+     * applies the idle timeout and fingerprint binding and records activity.
+     *
+     * @return array{user_id:int, uuid:string, email:string, first_name:string, last_name:string, roles:string[], session_id:int, device_fingerprint:?string, ip_address:string, user_agent:string}
      * @throws \QRIVO\Domain\Exception\UnauthorizedException when the token is missing, invalid, expired or revoked
      */
     protected function authenticate(Request $request): array
@@ -64,7 +68,14 @@ abstract class BaseController
             throw new \QRIVO\Domain\Exception\UnauthorizedException('Authentication required.');
         }
 
-        $context = $this->authServiceInstance()->validateToken($token);
+        $device = \QRIVO\Domain\Security\DeviceContext::fromRequest(
+            $request->getIp(),
+            $request->getHeader('user-agent'),
+            $request->getHeader('x-device-id'),
+            $request->getHeader('x-device-name'),
+        );
+
+        $context = $this->authServiceInstance()->validateToken($token, $device);
         $context['ip_address'] = $request->getIp();
         $context['user_agent'] = (string) ($request->getHeader('user-agent') ?? '');
 

@@ -273,6 +273,12 @@ final class LiveAttendanceServiceTest extends TestCase
             new \QRIVO\Infrastructure\Repository\Attendance\RiskAssessmentRepository($this->db),
             new RelationshipRepository($this->db),
             $log,
+            new \QRIVO\Application\Service\Security\DeviceSessionService(
+                $this->createMock(LoggerInterface::class),
+                new \QRIVO\Infrastructure\Repository\DeviceSessionRepository($this->db),
+                $log,
+                new Config(QRIVO_ROOT),
+            ),
             new Config(QRIVO_ROOT),
         );
     }

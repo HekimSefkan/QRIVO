@@ -488,6 +488,58 @@ Phase 11–12 endpoints.
 
 ---
 
+## AD-013: Device fingerprint derivation; non-enforcing binding; config not `system_settings` (Phase 18)
+
+**Source wording:** `PROJECT_SPECIFICATION.md` §6.13 ("Device registration,
+Session identification, Session expiration, Logout, Suspicious device detection,
+Multiple device rules, Integration with security and risk scoring") and §6.14
+("Risk values managed via `system_settings` or configuration — not hard-coded").
+`database/docs/TABLES.md` `device_sessions.device_fingerprint`: "Derived from UA
++ device identifiers". `SECURITY_RULES.md` §1: all security decisions server-side.
+
+**What was done (Phase 18):**
+
+1. **Fingerprint = server-derived, never client-trusted.**
+   `Domain\Security\DeviceContext` computes `sha256(X-Device-Id | User-Agent)`
+   server-side. The client never sends a fingerprint; it is only a *signal* for
+   session binding and risk scoring, never an authorization input. A request
+   with neither header yields a null fingerprint, which *disables* fingerprint
+   checks for that request rather than failing it.
+
+2. **Fingerprint binding is log-only by default.**
+   A request whose fingerprint differs from the one recorded when the session
+   was issued always produces a `SUSPICIOUS_DEVICE` (HIGH) event and a
+   `DEVICE_MISMATCH` risk signal. It is **rejected (401) only when**
+   `security.device.enforce_fingerprint_binding` is enabled. Rationale: a
+   fingerprint derived largely from a User-Agent is not reliable enough to
+   hard-block every request on; deployments that mandate a stable `X-Device-Id`
+   can turn enforcement on. No schema or algorithm change — the frozen
+   `device_sessions` columns are used as-is; **no migration was needed**.
+
+3. **Thresholds live in `config/security.php`, not `system_settings`.**
+   Spec §6.14 explicitly permits "`system_settings` **or** configuration". The
+   `system_settings`-backed store is owned by the risk-scoring phase (Phase 19,
+   see AD-009); Phase 18 uses config so the values are still not hard-coded.
+
+4. **Idle timeout** is an additional server-side check over `last_active_at`
+   (`security.device.idle_timeout_seconds`, 0 = disabled). It complements — does
+   not replace — the absolute `expires_at`.
+
+**Why this is acceptable:** no locked decision in `ARCHITECTURE_RULES.md`,
+`ATTENDANCE_ALGORITHM.md`, or `SECURITY_RULES.md` changes. The server stays
+authoritative; every mechanism maps to an approved §6.13 bullet and an existing
+`device_sessions` column and `SecurityEventType` case (`NEW_DEVICE`,
+`SUSPICIOUS_DEVICE`).
+
+**Enforced in:** `backend/src/Domain/Security/DeviceContext.php`,
+`backend/src/Application/Service/Security/DeviceSessionService.php`,
+`backend/src/Application/Service/AuthService.php` (login / refresh / validateToken),
+`backend/src/Presentation/Http/BaseController.php`,
+`backend/src/Application/Service/Attendance/{ChallengeService,RiskEvaluationService}.php`,
+`backend/config/security.php`.
+
+---
+
 ## Change protocol
 
 New deviations may be added here **only** after review. A deviation that touches

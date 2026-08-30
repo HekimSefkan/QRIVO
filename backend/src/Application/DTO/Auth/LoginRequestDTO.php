@@ -24,6 +24,10 @@ final class LoginRequestDTO extends BaseDTO
         public readonly string $password,
         public readonly string $ipAddress,
         public readonly string $userAgent,
+        /** Optional stable client device id (`X-Device-Id`); feeds the fingerprint. */
+        public readonly ?string $deviceId = null,
+        /** Optional human label for the device (`X-Device-Name`). */
+        public readonly ?string $deviceName = null,
     ) {}
 
     /**

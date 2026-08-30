@@ -47,10 +47,12 @@ final class AuthController extends BaseController
         ]);
 
         $dto = new LoginRequestDTO(
-            email:     (string) $request->input('email'),
-            password:  (string) $request->input('password'),
-            ipAddress: $request->getIp(),
-            userAgent: (string) ($request->getHeader('user-agent') ?? ''),
+            email:      (string) $request->input('email'),
+            password:   (string) $request->input('password'),
+            ipAddress:  $request->getIp(),
+            userAgent:  (string) ($request->getHeader('user-agent') ?? ''),
+            deviceId:   $request->getHeader('x-device-id'),
+            deviceName: $request->getHeader('x-device-name'),
         );
 
         $result = $this->authServiceInstance()->login($dto);
@@ -94,6 +96,8 @@ final class AuthController extends BaseController
             $rawRefreshToken,
             $request->getIp(),
             (string) ($request->getHeader('user-agent') ?? ''),
+            $request->getHeader('x-device-id'),
+            $request->getHeader('x-device-name'),
         );
 
         return $this->success($result->toArray(), 'Token refreshed successfully.');

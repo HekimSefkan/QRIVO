@@ -22,6 +22,7 @@ final class Config
         $this->load('logging');
         $this->load('auth');
         $this->load('attendance');
+        $this->load('security');
     }
 
     /**
