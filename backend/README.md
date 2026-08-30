@@ -42,22 +42,22 @@ backend/
 │   │   ├── Authorization/  # RolePermissionMap — canonical role → permission map
 │   │   ├── Contract/       # Interfaces: RepositoryInterface, PolicyInterface, ServiceInterface, LoggerInterface
 │   │   ├── Attendance/     # AttendanceEligibility value object
-│   │   ├── Entity/         # User, DeviceSession, Entity/Academic/* (11), Entity/Schedule/* (6)
-│   │   ├── Enum/           # UserRole, Permission, AttendanceStatus, SessionStatus, SecurityEventType
+│   │   ├── Entity/         # User, DeviceSession, Entity/Academic/* (11), Entity/Schedule/* (6), Entity/Attendance/* (2)
+│   │   ├── Enum/           # UserRole, Permission, AttendanceStatus/Source, SessionStatus, DayOfWeek, SecurityEventType
 │   │   └── Exception/      # Domain exceptions: Unauthorized, Forbidden, NotFound, Conflict, Validation, ...
 │   ├── Application/
 │   │   ├── DTO/            # Base + Auth DTOs
 │   │   ├── Policy/         # SelfOwnedResourcePolicy, AttendanceAuthorizationPolicy
-│   │   ├── Service/        # Auth*, Authorization*, AttendanceEligibility*, Service/Academic/* (11), Service/Schedule/* (6)
+│   │   ├── Service/        # Auth*, Authorization*, AttendanceEligibility*, Service/{Academic (11), Schedule (6), Attendance (1)}
 │   │   └── Validation/     # Validator — input validation rules engine
 │   ├── Infrastructure/
 │   │   ├── Config/         # Config — dot-notation config loader from PHP files + ENV
 │   │   ├── Database/       # Connection — lazy PDO wrapper with transaction helpers
 │   │   ├── Logging/        # Logger — Monolog wrapper with sensitive key redaction
-│   │   └── Repository/     # BaseRepository, AbstractCrudRepository, ReferenceRepository, ScheduleRepository, Repository/{Academic,Schedule}/*
+│   │   └── Repository/     # Base/AbstractCrud/Reference/Schedule/Relationship, Repository/{Academic,Schedule,Attendance}/*
 │   └── Presentation/
 │       └── Http/
-│           ├── Controller/        # Health, Auth/*, Admin/* (16 resource controllers), Teacher/AttendanceEligibilityController
+│           ├── Controller/        # Health, Auth/*, Admin/* (16), Teacher/{AttendanceEligibility,Attendance}Controller
 │           ├── Middleware/        # Cors, JsonBody, Auth, Authorization, MiddlewarePipeline
 │           ├── Response/          # JsonResponse — standard API envelope
 │           ├── BaseController.php
@@ -171,6 +171,13 @@ course-schedules}`. `student-courses` is `GET`-only (derived, DD-005).
 — server-side check of whether the caller may open attendance for that
 course/class/time, and in which room. Creates nothing.
 
+**Attendance sessions (teacher — `attendance.session.start`):**
+`POST /api/v1/teacher/attendance/start` (`{class_id, course_id, [academic_term_id], [room_id]}`)
+runs the full 10-step ATTENDANCE_ALGORITHM.md §2 sequence in one transaction,
+initialises every enrolled student as `WAITING`, and refuses a duplicate ACTIVE
+session for the same class/course/term (409). `GET /api/v1/teacher/attendance/{id}`
+returns the caller's own session. `session_secret` is never returned.
+
 List endpoints accept `?page`, `?per_page`, `?search`, and id filters
 (e.g. `?school_id=`, `?academic_term_id=`). Responses are paginated with a `meta` block.
 
@@ -269,7 +276,7 @@ This backend is being built incrementally:
 - [x] Phase 7 — RBAC + Authorization
 - [x] Phase 8 — Admin & Academic Structure
 - [x] Phase 9 — Course/Teacher/Student Assignments + Schedule
-- [ ] Phase 10 — Attendance Session
+- [x] Phase 10 — Attendance Session
 - [ ] Phase 11 — Dynamic QR
 - [ ] ...
 

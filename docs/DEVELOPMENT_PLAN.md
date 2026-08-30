@@ -13,16 +13,17 @@
 | 1 — Specification & Architecture | ✅ Complete | `8b56c39` |
 | 2 — Architecture Freeze | ✅ Complete | `a837af2` |
 | 3 — Database Architecture | ✅ Complete | `a837af2` |
-| 4 — Database Migrations | 🔄 Restructured — now incremental per feature phase (see note below) | `001`–`004` |
+| 4 — Database Migrations | 🔄 Restructured — now incremental per feature phase (see note below) | `001`–`005` |
 | 5 — Backend Foundation | ✅ Complete | `ec1e411` |
 | 6 — Authentication | ✅ Complete | `9c5a378` |
 | 7 — Authorization & RBAC | ✅ Complete | `c4e3863` |
 | 8 — Academic Structure | ✅ Complete | `8321d43` |
-| 9 — Course Scheduling | ✅ Complete | `feat(schedule): implement QRIVO course scheduling` |
-| 10 — Attendance Sessions | ⏭️ Next | — |
-| 11–23 | ⛔ Not started | — |
+| 9 — Course Scheduling | ✅ Complete | `15942d7` |
+| 10 — Attendance Sessions | ✅ Complete | `feat(attendance): implement QRIVO attendance sessions` |
+| 11 — Dynamic QR System | ⏭️ Next | — |
+| 12–23 | ⛔ Not started | — |
 
-**Test status at Phase 9:** 280 tests, 585 assertions, 100% passing (`backend/`).
+**Test status at Phase 10:** 303 tests, 632 assertions, 100% passing (`backend/`).
 
 ### Migration strategy note (deviation AD-001)
 
@@ -43,8 +44,10 @@ migrations), AD-002 (login checks password before account-state), AD-003
 (`course_schedules` plural), AD-004 (`PENDING_REVIEW` status — resolved via
 OQ-001), AD-005 (SUPER_ADMIN = full system access; permission names derived from
 spec §6 — interim resolution of OQ-005), AD-006 (teacher-class-assignment
-prerequisite rule + schedule conflict checks; `student_courses` read-only).
-`ORIGINAL_SPECIFICATION.md` remains unchanged.
+prerequisite rule + schedule conflict checks; `student_courses` read-only),
+AD-007 (session `end_time` NULL until close; `expires_at` = scheduled meeting
+end; duplicate-active-session scope). `ORIGINAL_SPECIFICATION.md` remains
+unchanged.
 
 ---
 
@@ -252,14 +255,26 @@ Permission names are derived from PROJECT_SPECIFICATION.md §6.
 
 ---
 
-## Phase 10: Attendance Sessions
+## Phase 10: Attendance Sessions — ✅ COMPLETE
 
-- [ ] `POST /api/v1/teacher/attendance/start`
-- [ ] Full 10-step validation sequence
-- [ ] Session creation with transaction
-- [ ] Student initialization (WAITING)
-- [ ] Duplicate active session prevention
-- [ ] Automated tests
+- [x] `POST /api/v1/teacher/attendance/start` (+ `GET /api/v1/teacher/attendance/{id}` — own session)
+- [x] Full 10-step validation sequence (ATTENDANCE_ALGORITHM.md §2), implemented exactly and in order:
+      1 authentication (`BaseController::authenticate`) · 2–8 `AttendanceEligibilityService`
+      (teacher role+profile, `teacher_class_assignments`, `course_schedules` day/time, scheduled room) ·
+      9 term `is_active` · 10 no ACTIVE session for (class, course, term)
+- [x] Session creation inside a single DB transaction with a class row lock
+      (CONSTRAINTS.md §6 — "SELECT FOR UPDATE on active session check")
+- [x] Student initialization — one WAITING/SYSTEM `attendance_records` row per enrolled student
+- [x] Duplicate active session prevention — per (class, course, term); 409
+- [x] `session_secret` generated server-side, never returned (DD-002)
+- [x] Migration `005_create_attendance_sessions.sql` (`attendance_sessions`, `attendance_records`;
+      `UNIQUE(attendance_session_id, student_id)` = C-001; FK RESTRICT)
+- [x] Automated tests (23 new)
+
+**Notes:**
+- `end_time` is NULL at creation and `expires_at` = the scheduled meeting end —
+  see [`ACCEPTED_DEVIATIONS.md`](ACCEPTED_DEVIATIONS.md) AD-007.
+- Close / cancel / manual attendance / live counters / QR are later phases.
 
 **Commit:** `feat(attendance): implement QRIVO attendance sessions`
 

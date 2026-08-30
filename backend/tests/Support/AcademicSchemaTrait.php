@@ -183,6 +183,27 @@ trait AcademicSchemaTrait
                 FOREIGN KEY (teacher_class_assignment_id) REFERENCES teacher_class_assignments(id) ON DELETE RESTRICT,
                 FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE RESTRICT
             );
+            CREATE TABLE attendance_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, uuid TEXT NOT NULL UNIQUE,
+                course_id INTEGER NOT NULL, class_id INTEGER NOT NULL, teacher_id INTEGER NOT NULL,
+                room_id INTEGER NOT NULL, academic_term_id INTEGER NOT NULL,
+                start_time TEXT NOT NULL, end_time TEXT, expires_at TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'ACTIVE', session_secret TEXT NOT NULL,
+                created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE RESTRICT,
+                FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE RESTRICT,
+                FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE RESTRICT,
+                FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE RESTRICT,
+                FOREIGN KEY (academic_term_id) REFERENCES academic_terms(id) ON DELETE RESTRICT
+            );
+            CREATE TABLE attendance_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, attendance_session_id INTEGER NOT NULL, student_id INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'WAITING', source TEXT NOT NULL DEFAULT 'SYSTEM', marked_at TEXT,
+                created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                UNIQUE (attendance_session_id, student_id),
+                FOREIGN KEY (attendance_session_id) REFERENCES attendance_sessions(id) ON DELETE RESTRICT,
+                FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE RESTRICT
+            );
         SQL);
 
         // Seed roles/permissions from the canonical map.
@@ -343,6 +364,60 @@ trait AcademicSchemaTrait
         $ids['studentId'] = (int) $this->pdo->lastInsertId();
 
         return $ids;
+    }
+
+    /**
+     * On top of seedSchedulingFixtures(): a class_course + teacher_course +
+     * teacher_class_assignment + one course_schedule slot. Returns the tca id.
+     * $this->ids is updated with `tcaId` and `scheduleId`.
+     */
+    private function wireAssignmentAndSchedule(int $dayOfWeek = 0, string $start = '09:00:00', string $end = '11:00:00'): int
+    {
+        $now = '2026-01-01 00:00:00';
+        $i   = $this->ids;
+        $this->pdo->prepare('INSERT INTO class_courses (class_id, course_id, academic_term_id, created_at) VALUES (?,?,?,?)')->execute([$i['classId'], $i['courseId'], $i['termId'], $now]);
+        $this->pdo->prepare('INSERT INTO teacher_courses (teacher_id, course_id, academic_term_id, created_at) VALUES (?,?,?,?)')->execute([$i['teacherId'], $i['courseId'], $i['termId'], $now]);
+        $this->pdo->prepare('INSERT INTO teacher_class_assignments (teacher_id, class_id, course_id, academic_term_id, created_at) VALUES (?,?,?,?,?)')->execute([$i['teacherId'], $i['classId'], $i['courseId'], $i['termId'], $now]);
+        $tcaId = (int) $this->pdo->lastInsertId();
+        $this->pdo->prepare('INSERT INTO course_schedules (teacher_class_assignment_id, room_id, day_of_week, start_time, end_time, created_at, updated_at) VALUES (?,?,?,?,?,?,?)')->execute([$tcaId, $i['roomId'], $dayOfWeek, $start, $end, $now, $now]);
+
+        $this->ids['tcaId']      = $tcaId;
+        $this->ids['scheduleId'] = (int) $this->pdo->lastInsertId();
+
+        return $tcaId;
+    }
+
+    /**
+     * Enrol $n students in ($classId, $termId). $this->ids['studentId'] (from the
+     * fixtures) is enrolled as #1. Returns the list of student ids.
+     *
+     * @return int[]
+     */
+    private function enrolStudents(int $n): array
+    {
+        $now = '2026-01-01 00:00:00';
+        $ids = [];
+        for ($k = 1; $k <= $n; $k++) {
+            if ($k === 1) {
+                $sid = $this->ids['studentId'];
+            } else {
+                $u = $this->makeUser("student{$k}@x.test", ['STUDENT']);
+                $this->pdo->prepare('INSERT INTO students (user_id, program_id, student_number, enrollment_year, created_at, updated_at) VALUES (?,?,?,?,?,?)')
+                    ->execute([$u, $this->ids['programId'], "S-{$k}", 2025, $now, $now]);
+                $sid = (int) $this->pdo->lastInsertId();
+            }
+            $this->pdo->prepare('INSERT INTO student_class_assignments (student_id, class_id, academic_term_id, enrolled_at) VALUES (?,?,?,?)')
+                ->execute([$sid, $this->ids['classId'], $this->ids['termId'], $now]);
+            $ids[] = $sid;
+        }
+
+        return $ids;
+    }
+
+    /** A DateTimeImmutable on a Monday at $time (schedules default to day 0 = Monday). */
+    private function mondayAt(string $time = '10:00:00'): \DateTimeImmutable
+    {
+        return new \DateTimeImmutable("2026-03-02 {$time}"); // 2026-03-02 is a Monday
     }
 
     private function scheduleRepo(): \QRIVO\Infrastructure\Repository\ScheduleRepository

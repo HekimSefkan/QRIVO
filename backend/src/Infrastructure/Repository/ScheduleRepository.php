@@ -74,6 +74,15 @@ final class ScheduleRepository extends BaseRepository
         return $this->db->fetchOne('SELECT 1 FROM `academic_terms` WHERE `is_active` = 1 LIMIT 1') !== null;
     }
 
+    /** Is this specific academic term active? */
+    public function termIsActive(int $termId): bool
+    {
+        return $this->db->fetchOne(
+            'SELECT 1 FROM `academic_terms` WHERE `id` = :id AND `is_active` = 1 LIMIT 1',
+            ['id' => $termId],
+        ) !== null;
+    }
+
     public function assignmentHasScheduleOnDay(int $teacherClassAssignmentId, int $dayOfWeek): bool
     {
         return $this->db->fetchOne(

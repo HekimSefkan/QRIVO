@@ -9,6 +9,67 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 
 ## [Unreleased]
 
+### Added (Attendance Sessions — Phase 10)
+
+**Migration**
+- `database/migrations/005_create_attendance_sessions.sql` — `attendance_sessions`,
+  `attendance_records`; InnoDB / utf8mb4; `UNIQUE(uuid)` (C-026),
+  **`UNIQUE(attendance_session_id, student_id)`** (C-001 — the database-level
+  duplicate-attendance guard); FK `ON DELETE RESTRICT` (FK-39..FK-45); status /
+  source ENUMs; `end_time` nullable
+
+**Domain**
+- `Entity/Attendance/AttendanceSession` — `toArray()` deliberately omits
+  `session_secret` (DD-002); `Entity/Attendance/AttendanceRecord`
+- `Enum/AttendanceSource` (SYSTEM / QR / MANUAL)
+
+**Repositories**
+- `Repository/Attendance/AttendanceSessionRepository` — `lockClassRow()`
+  (`SELECT … FOR UPDATE` on MySQL, no-op on SQLite),
+  `findActiveForClassCourseTerm(lock:)`, `create()`, `findRow()`, `findByUuid()`,
+  `activeSessionCountForTeacher()` (OQ-009)
+- `Repository/Attendance/AttendanceRecordRepository` —
+  `initialiseForClassEnrollment()` (one atomic `INSERT … SELECT` from
+  `student_class_assignments`), `countByStatus()`, `countForSession()`, `forSession()`
+- `Connection::driverName()` — guards driver-specific SQL
+
+**Service — `Application/Service/Attendance/AttendanceSessionService`**
+Implements ATTENDANCE_ALGORITHM.md §2 exactly and in order (not redesigned):
+
+| step | check | mechanism |
+|---|---|---|
+| 1 | teacher authentication | `BaseController::authenticate()` (bearer token, DB-validated) |
+| 2 | teacher authorization | `AttendanceEligibilityService` — TEACHER role + `teachers` profile |
+| 3–4 | course + class assignment | `teacher_class_assignments` (C-016) |
+| 5–7 | schedule / date / time | `course_schedules` row covering `day_of_week` + `start ≤ now ≤ end` |
+| 8 | room | taken from the covering schedule; a supplied `room_id` must match it |
+| 9 | academic term | resolved term must be `is_active = 1` |
+| 10 | active session check | inside the transaction, after a `classes` row lock — no ACTIVE session may exist for `(class, course, term)` → 409 |
+
+On success, in **one transaction** (CONSTRAINTS.md §6): `INSERT attendance_sessions`
+(status `ACTIVE`, server-generated 64-hex `session_secret`, `end_time` NULL,
+`expires_at` = scheduled meeting end) + one `WAITING`/`SYSTEM` `attendance_records`
+row per enrolled student. `ATTENDANCE_SESSION_STARTED` audit log; every
+unauthorized attempt → `UNAUTHORIZED_ATTENDANCE` security event.
+
+**API**
+- `POST /api/v1/teacher/attendance/start` — `{ class_id, course_id, [academic_term_id], [room_id] }`
+  → `{ session, counts }`; `attendance.session.start` (TEACHER)
+- `GET /api/v1/teacher/attendance/{id}` — view one of the caller's own sessions
+  (cross-teacher access → `IDOR_ATTEMPT` + 403)
+
+**Tests (23 new — 303 total, 632 assertions, 100% passing)**
+- `tests/Unit/Application/Service/Attendance/AttendanceSessionServiceTest.php` — every
+  step: non-teacher/unassigned (403 + event), wrong day / outside time / inactive term
+  (409), room mismatch (403), duplicate active session (409, records initialised once),
+  restart after CLOSED, WAITING/SYSTEM initialisation, `session_secret` never returned,
+  audit, `viewOwned` ownership
+- `tests/Unit/Presentation/Http/Controller/Attendance/AttendanceStartRoutesTest.php` —
+  Router-dispatched 201 / 401 / 403 / 409 / 422
+
+**Not implemented (per instruction):** dynamic QR; and close / cancel / manual
+attendance / live counters (later phases).
+
 ### Added (Course Assignments & Scheduling — Phase 9)
 
 **Migration**

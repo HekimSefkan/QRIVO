@@ -30,6 +30,7 @@ use QRIVO\Presentation\Http\Controller\Admin\TeacherController;
 use QRIVO\Presentation\Http\Controller\Admin\TeacherCourseController;
 use QRIVO\Presentation\Http\Controller\Auth\AuthController;
 use QRIVO\Presentation\Http\Controller\HealthController;
+use QRIVO\Presentation\Http\Controller\Teacher\AttendanceController;
 use QRIVO\Presentation\Http\Controller\Teacher\AttendanceEligibilityController;
 
 // ─── Health ──────────────────────────────────────────────────────────────────
@@ -86,8 +87,13 @@ $r->addRoute('GET', '/api/v1/admin/student-courses/{id:\d+}',  [StudentCourseCon
 // server-side authorization determination. No session is created, no QR issued.
 $r->addRoute('GET', '/api/v1/teacher/attendance/eligibility', [AttendanceEligibilityController::class, 'check']);
 
-// ─── Teacher Attendance (Phases 10–15) ───────────────────────────────────
-// $r->addRoute('POST',  '/api/v1/teacher/attendance/start',                        [AttendanceController::class, 'start']);
+// ─── Attendance sessions (Phase 10 — teacher) ────────────────────────────
+// Creation runs the full 10-step ATTENDANCE_ALGORITHM.md §2 sequence inside a
+// transaction; duplicate ACTIVE sessions for a (class, course, term) are refused.
+$r->addRoute('POST', '/api/v1/teacher/attendance/start',    [AttendanceController::class, 'start']);
+$r->addRoute('GET',  '/api/v1/teacher/attendance/{id:\d+}', [AttendanceController::class, 'show']);
+
+// ─── Teacher Attendance (Phases 11–15) ───────────────────────────────────
 // $r->addRoute('POST',  '/api/v1/teacher/attendance/{id}/close',                   [AttendanceController::class, 'close']);
 // $r->addRoute('PATCH', '/api/v1/teacher/attendance/{attendanceId}/student/{studentId}', [AttendanceController::class, 'updateStudent']);
 
