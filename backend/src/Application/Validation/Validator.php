@@ -25,6 +25,8 @@ use QRIVO\Domain\Exception\ValidationException;
  * - max_length:N
  * - in:a,b,c
  * - uuid
+ * - date            (ISO calendar date, YYYY-MM-DD)
+ * - integer_range:min,max
  */
 final class Validator
 {
@@ -136,6 +138,26 @@ final class Validator
                 $pattern = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
                 if ($value !== null && $value !== '' && !preg_match($pattern, (string) $value)) {
                     $this->addError($field, 'The ' . $field . ' field must be a valid UUID.');
+                }
+                break;
+
+            case 'date':
+                if ($value !== null && $value !== '') {
+                    $d = \DateTimeImmutable::createFromFormat('!Y-m-d', (string) $value);
+                    if ($d === false || $d->format('Y-m-d') !== (string) $value) {
+                        $this->addError($field, 'The ' . $field . ' field must be a valid date (YYYY-MM-DD).');
+                    }
+                }
+                break;
+
+            case 'integer_range':
+                [$lo, $hi] = array_pad(explode(',', (string) $param, 2), 2, null);
+                if ($value !== null && $value !== '') {
+                    if (!is_int($value) && !ctype_digit((string) $value)) {
+                        $this->addError($field, 'The ' . $field . ' field must be an integer.');
+                    } elseif ((int) $value < (int) $lo || (int) $value > (int) $hi) {
+                        $this->addError($field, 'The ' . $field . ' field must be between ' . $lo . ' and ' . $hi . '.');
+                    }
                 }
                 break;
         }

@@ -90,6 +90,22 @@ final class JsonResponse
     }
 
     /**
+     * Paginated list response: data array plus a `meta` block.
+     *
+     * @param array<int, mixed>     $items
+     * @param array<string, int>    $meta  page, per_page, total, total_pages
+     */
+    public static function paginated(array $items, array $meta, string $message = 'OK'): self
+    {
+        return new self([
+            'success' => true,
+            'message' => $message,
+            'data'    => $items,
+            'meta'    => $meta,
+        ], 200);
+    }
+
+    /**
      * No content response (204).
      */
     public static function noContent(): self

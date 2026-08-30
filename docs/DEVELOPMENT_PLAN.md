@@ -13,14 +13,15 @@
 | 1 — Specification & Architecture | ✅ Complete | `8b56c39` |
 | 2 — Architecture Freeze | ✅ Complete | `a837af2` |
 | 3 — Database Architecture | ✅ Complete | `a837af2` |
-| 4 — Database Migrations | 🔄 Restructured — now incremental per feature phase (see note below) | `001`, `002` |
+| 4 — Database Migrations | 🔄 Restructured — now incremental per feature phase (see note below) | `001`, `002`, `003` |
 | 5 — Backend Foundation | ✅ Complete | `ec1e411` |
 | 6 — Authentication | ✅ Complete | `9c5a378` |
-| 7 — Authorization & RBAC | ✅ Complete | `feat(auth): implement QRIVO authorization and RBAC` |
-| 8 — Academic Structure | ⏭️ Next | — |
-| 9–23 | ⛔ Not started | — |
+| 7 — Authorization & RBAC | ✅ Complete | `c4e3863` |
+| 8 — Academic Structure | ✅ Complete | `feat(admin): implement QRIVO academic structure` |
+| 9 — Course Scheduling | ⏭️ Next | — |
+| 10–23 | ⛔ Not started | — |
 
-**Test status at Phase 7:** 203 tests, 450 assertions, 100% passing (`backend/`).
+**Test status at Phase 8:** 243 tests, 511 assertions, 100% passing (`backend/`).
 
 ### Migration strategy note (deviation AD-001)
 
@@ -194,13 +195,30 @@ Permission names are derived from PROJECT_SPECIFICATION.md §6.
 
 ---
 
-## Phase 8: Academic Structure
+## Phase 8: Academic Structure — ✅ COMPLETE
 
-- [ ] Schools, Faculties, Departments, Programs
-- [ ] Academic Years, Academic Terms
-- [ ] Classes, Rooms, Courses
-- [ ] Teachers, Students
-- [ ] Model, Repository, Service, Validation, Authorization, Controller, API, Tests
+- [x] Schools, Faculties, Departments, Programs
+- [x] Academic Years, Academic Terms
+- [x] Classes, Rooms, Courses
+- [x] Teachers, Students
+- [x] Model (`src/Domain/Entity/Academic/`), Repository (`.../Repository/Academic/`),
+      Service (`.../Service/Academic/`), Validation (per-entity rules + `date` /
+      `integer_range` rules), Authorization (`academic.*.manage` — ADMIN /
+      SUPER_ADMIN, enforced in `AbstractResourceController::guard()`),
+      Controller (`.../Controller/Admin/`), REST API
+      (`/api/v1/admin/{resource}` — index/show/store/update/destroy), Tests (40 new)
+- [x] Migration `003_create_academic_structure.sql` (11 tables, FK RESTRICT, soft delete per DD-009)
+- [x] Relationships enforced at **both** layers: FK constraints in the DB;
+      `ReferenceRepository` parent-existence checks (incl. soft-deleted parents)
+      and `blockingChildren` delete guards in the service
+
+**Notes:**
+- Teacher/Student profiles link an existing `users` account and attach the
+  non-privileged TEACHER/STUDENT role on creation — interim handling of OQ-004
+  (user account provisioning remains out of scope).
+- Assignment/scheduling tables (`class_courses`, `teacher_courses`,
+  `teacher_class_assignments`, `student_class_assignments`, `student_courses`,
+  `course_schedules`) are Phase 9 — not created here.
 
 **Commit:** `feat(admin): implement QRIVO academic structure`
 

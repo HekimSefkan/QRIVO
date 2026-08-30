@@ -41,22 +41,22 @@ backend/
 │   ├── Domain/
 │   │   ├── Authorization/  # RolePermissionMap — canonical role → permission map
 │   │   ├── Contract/       # Interfaces: RepositoryInterface, PolicyInterface, ServiceInterface, LoggerInterface
-│   │   ├── Entity/         # User, DeviceSession
+│   │   ├── Entity/         # User, DeviceSession, Entity/Academic/* (11 structural entities)
 │   │   ├── Enum/           # UserRole, Permission, AttendanceStatus, SessionStatus, SecurityEventType
 │   │   └── Exception/      # Domain exceptions: Unauthorized, Forbidden, NotFound, Conflict, Validation, ...
 │   ├── Application/
 │   │   ├── DTO/            # Base + Auth DTOs
 │   │   ├── Policy/         # SelfOwnedResourcePolicy, AttendanceAuthorizationPolicy
-│   │   ├── Service/        # AuthService, AuthorizationService, LoginAttemptService, SecurityLogService, ...
+│   │   ├── Service/        # Auth*, Authorization*, Security*, Service/Academic/* (11 CRUD services)
 │   │   └── Validation/     # Validator — input validation rules engine
 │   ├── Infrastructure/
 │   │   ├── Config/         # Config — dot-notation config loader from PHP files + ENV
 │   │   ├── Database/       # Connection — lazy PDO wrapper with transaction helpers
 │   │   ├── Logging/        # Logger — Monolog wrapper with sensitive key redaction
-│   │   └── Repository/     # BaseRepository — shared PDO CRUD helpers
+│   │   └── Repository/     # BaseRepository, AbstractCrudRepository, ReferenceRepository, Repository/Academic/*
 │   └── Presentation/
 │       └── Http/
-│           ├── Controller/        # HealthController, Auth/AuthController
+│           ├── Controller/        # HealthController, Auth/AuthController, Admin/* (11 resource controllers)
 │           ├── Middleware/        # Cors, JsonBody, Auth, Authorization, MiddlewarePipeline
 │           ├── Response/          # JsonResponse — standard API envelope
 │           ├── BaseController.php
@@ -154,9 +154,19 @@ All endpoints are versioned under `/api/v1/`.
 | `POST` | `/api/v1/auth/refresh`| refresh token | Rotate tokens (reuse detection) |
 | `GET`  | `/api/v1/auth/me`     | Bearer        | Authenticated caller's identity + roles |
 
+**Academic structure (admin — `academic.*.manage`, ADMIN / SUPER_ADMIN):**
+standard REST (`GET` list, `POST` create, `GET`/`PATCH`/`DELETE` `/{id}`) under
+
+`/api/v1/admin/{schools, faculties, departments, programs, rooms, courses,
+academic-years, academic-terms, classes, teachers, students}`
+
+List endpoints accept `?page`, `?per_page`, `?search`, and parent-id filters
+(e.g. `?school_id=`). Responses are paginated with a `meta` block.
+
 Authorization is enforced server-side via `AuthorizationService` (role,
-permission, ownership, relationship) and `AuthorizationMiddleware`. Permissions
-are seeded by `database/migrations/002_seed_rbac_permissions.sql`.
+permission, ownership, relationship) and `AuthorizationMiddleware` /
+`AbstractResourceController::guard()`. Permissions are seeded by
+`database/migrations/002_seed_rbac_permissions.sql`.
 
 ### Planned (Future Phases)
 
@@ -246,7 +256,7 @@ This backend is being built incrementally:
 - [x] Phase 5 — Backend Foundation
 - [x] Phase 6 — Authentication
 - [x] Phase 7 — RBAC + Authorization
-- [ ] Phase 8 — Admin & Academic Structure
+- [x] Phase 8 — Admin & Academic Structure
 - [ ] Phase 9 — Course/Teacher/Student Assignments
 - [ ] Phase 10 — Course Schedule
 - [ ] Phase 11 — Attendance Session

@@ -9,6 +9,72 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 
 ## [Unreleased]
 
+### Added (Academic & Institutional Structure — Phase 8)
+
+**Entities (`src/Domain/Entity/Academic/`)**
+- `School`, `Faculty`, `Department`, `Program`, `Room`, `Course`, `AcademicYear`,
+  `AcademicTerm`, `ClassGroup` (table `classes`), `Teacher`, `Student` — immutable
+  value objects with `fromRow()` / `toArray()`
+
+**Repositories**
+- `AbstractCrudRepository` — shared paged listing (filters + search), soft-delete-aware
+  reads, uniqueness checks, `countChildren()` delete-guard helper
+- `ReferenceRepository` — parent-existence checks (rejects soft-deleted parents that a
+  raw FK cannot catch), `userIsUsable()`, `userHasProfile()`, idempotent `ensureUserRole()`
+- 11 thin per-entity repositories under `.../Repository/Academic/`
+
+**Services (`src/Application/Service/Academic/`)**
+- `AbstractAcademicService` — validation orchestration, 404/409 semantics, pagination,
+  audit logging of every write, DB unique-violation → 409 translation
+- 11 per-entity services declaring rules, input mapping, resource shaping,
+  cross-entity consistency checks, and blocking child relations
+
+**Validation**
+- `Validator` — added `date` (ISO `YYYY-MM-DD`) and `integer_range:min,max` rules
+- Per-entity create/update rule sets; `AbstractAcademicService::optional()` derives
+  PATCH rules; empty update bodies rejected
+
+**Relationship enforcement (backend + database)**
+- Database: migration `003` foreign keys use `ON DELETE RESTRICT` (CONSTRAINTS.md FK-07..FK-19)
+- Application: `requireReference()` rejects create/update pointing at a missing or
+  soft-deleted parent (422); `blockingChildren` rejects deleting a row that still has
+  live children (409); teacher/student `user_id` must be an existing, active, approved user
+
+**Authorization**
+- `AbstractResourceController::guard()` — every action authenticates the bearer token
+  (server-side, DB-checked) then requires the resource's `academic.*.manage` permission
+  (ADMIN / SUPER_ADMIN). Frontend visibility is never trusted; a 403 never names the
+  missing permission
+
+**Controllers & API (`src/Presentation/Http/Controller/Admin/`)**
+- `AbstractResourceController` + 11 concrete controllers
+- `JsonResponse::paginated()` — list envelope with a `meta` block
+- REST: `GET|POST /api/v1/admin/{resource}` and `GET|PATCH|DELETE /api/v1/admin/{resource}/{id}`
+  for `schools`, `faculties`, `departments`, `programs`, `rooms`, `courses`,
+  `academic-years`, `academic-terms`, `classes`, `teachers`, `students`
+
+**Database migration**
+- `database/migrations/003_create_academic_structure.sql` — 11 tables, InnoDB / utf8mb4,
+  unique keys (C-006..C-025), FK RESTRICT, soft delete on structural entities (DD-009);
+  `academic_years` / `academic_terms` are not soft-deleted (per TABLES.md)
+
+**Teacher / Student profiles (OQ-004 interim)**
+- Link an existing `users` account; attach the non-privileged `TEACHER` / `STUDENT`
+  role on creation (audited `USER_ROLE_ATTACHED`); `user_id` immutable after creation
+- Account provisioning itself remains out of scope — see `docs/OPEN_QUESTIONS.md` OQ-004
+
+**Tests (40 new — 243 total, 511 assertions, 100% passing)**
+- `tests/Unit/Application/Service/Academic/AcademicStructureServiceTest.php` — CRUD,
+  validation, soft delete, audit, relationship enforcement, delete guards, pagination/filter,
+  teacher/student linking + role attach
+- `tests/Unit/Presentation/Http/Controller/Admin/AcademicAuthorizationTest.php` — dispatched
+  through the real Router: 401 unauthenticated, 403 student/teacher, 200/201 admin & super
+  admin, 422 validation, 409 delete-with-children, revoked-token rejection
+- `tests/Unit/Application/Validation/ValidatorAcademicRulesTest.php` — `date` / `integer_range`
+- `tests/Support/AcademicSchemaTrait.php` — in-memory SQLite schema (FKs on) mirroring 001+002+003
+
+**Not implemented (per instruction):** QR attendance, and Phase 9 assignment/scheduling tables.
+
 ### Added (Authorization & RBAC — Phase 7)
 
 **Domain Layer**
