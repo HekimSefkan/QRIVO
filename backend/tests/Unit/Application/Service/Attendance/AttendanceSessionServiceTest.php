@@ -51,6 +51,7 @@ final class AttendanceSessionServiceTest extends TestCase
             new ScheduleRepository($this->db),
             new RelationshipRepository($this->db),
             $securityLog,
+            new \QRIVO\Infrastructure\Repository\SystemSettingRepository($this->db),
         );
     }
 

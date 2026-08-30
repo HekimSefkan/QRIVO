@@ -243,13 +243,17 @@ permission, ownership, relationship) and `AuthorizationMiddleware` /
 `AbstractResourceController::guard()`. Permissions are seeded by
 `database/migrations/002_seed_rbac_permissions.sql`.
 
-### Planned (Future Phases)
-
-| Method   | Endpoint                                                             | Description                |
-|----------|----------------------------------------------------------------------|----------------------------|
-| `POST`   | `/api/v1/teacher/attendance/start`                                   | Start attendance session   |
-| `POST`   | `/api/v1/teacher/attendance/{id}/close`                              | Close attendance session   |
-| `PATCH`  | `/api/v1/teacher/attendance/{attendanceId}/student/{studentId}`      | Manual attendance update   |
+**Attendance session lifecycle (teacher):**
+`POST /api/v1/teacher/attendance/start` (`attendance.session.start`),
+`GET /api/v1/teacher/attendance/{id}`,
+`GET /api/v1/teacher/attendance/{id}/qr` (`attendance.live.view`),
+`PATCH /api/v1/teacher/attendance/{attendanceId}/student/{studentId}`
+(`attendance.record.update`),
+`POST /api/v1/teacher/attendance/{id}/close` (`attendance.session.close` —
+ACTIVE → CLOSED, remaining WAITING → ABSENT|PENDING_REVIEW per `system_settings`,
+transactional + audited + concurrency-safe, `ATTENDANCE_ALGORITHM.md` §7),
+`POST /api/v1/teacher/attendance/{id}/cancel` (`attendance.session.cancel` —
+ACTIVE → CANCELLED, records untouched, reason audited).
 
 ---
 
@@ -443,13 +447,14 @@ This backend is being built incrementally:
 - [x] Phase 12 — Challenge-Response Attendance
 - [x] Phase 13 — Teacher Live Attendance
 - [x] Phase 14 — Manual Attendance
-- [ ] Phase 15 — Session Close / Cancel *(deferred — skipped for now)*
+- [x] Phase 15 — Session Close / Cancel *(delivered in Phase 22)*
 - [x] Phase 16 — Mobile Application Foundation *(backend: student self-service)*
 - [x] Phase 17 — Mobile QR Attendance *(mobile-only; no backend change)*
 - [x] Phase 18 — Device Session Security
 - [x] Phase 19 — Risk Scoring
 - [x] Phase 20 — Security Events & Audit
 - [x] Phase 21 — Attendance Reporting
+- [x] Phase 22 — Integration Testing *(`tests/TEST_REPORT.md`)*
 - [ ] ...
 
 See [`docs/PROJECT_SPECIFICATION.md`](../docs/PROJECT_SPECIFICATION.md) for the full phase list.

@@ -198,6 +198,22 @@ final class AttendanceRecordRepository extends BaseRepository
     }
 
     /**
+     * Session close (ATTENDANCE_ALGORITHM.md §7 step 4): every still-WAITING
+     * record for the session becomes $status (ABSENT or PENDING_REVIEW per
+     * `system_settings`), source SYSTEM, marked now. Returns the number of rows
+     * transitioned. Runs inside the close transaction.
+     */
+    public function markRemainingWaiting(int $sessionId, string $status, string $markedAt): int
+    {
+        return $this->db->execute(
+            "UPDATE `attendance_records`
+                SET `status` = :status, `source` = 'SYSTEM', `marked_at` = :marked, `updated_at` = :upd
+              WHERE `attendance_session_id` = :sid AND `status` = 'WAITING'",
+            ['status' => $status, 'marked' => $markedAt, 'upd' => $markedAt, 'sid' => $sessionId],
+        );
+    }
+
+    /**
      * Insert a MANUAL record for a student enrolled after session start.
      */
     public function insertManual(int $sessionId, int $studentId, string $status, string $markedAt): int

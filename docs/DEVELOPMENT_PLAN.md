@@ -24,16 +24,17 @@
 | 12 — Challenge-Response Attendance | ✅ Complete | `a512561` |
 | 13 — Teacher Live Attendance | ✅ Complete (backend) | `adbcebf` |
 | 14 — Manual Attendance | ✅ Complete | `abe191c` |
-| 15 — Session Close/Cancel | ⏭️ Deferred — skipped for now, still pending | — |
+| 15 — Session Close/Cancel | ✅ Complete (delivered in Phase 22) | `test: complete QRIVO integration validation` |
 | 16 — Mobile Application Foundation | ✅ Complete | `abe191c` |
 | 17 — Mobile QR Attendance | ✅ Complete | `8306ba6` |
 | 18 — Device Session Security | ✅ Complete | `74a4ff2` |
 | 19 — Risk Scoring | ✅ Complete | `0eb36f7` |
 | 20 — Security Events & Audit | ✅ Complete | `26076f8` |
-| 21 — Reporting | ✅ Complete | `feat(reports): implement QRIVO attendance reporting` |
-| 22–23 | ⛔ Not started | — |
+| 21 — Reporting | ✅ Complete | `45b6f1d` |
+| 22 — Integration Testing | ✅ Complete | `test: complete QRIVO integration validation` |
+| 23 | ⛔ Not started | — |
 
-**Test status at Phase 21:** backend **553 tests, 1274 assertions, 100% passing**
+**Test status at Phase 22:** backend **586 tests, 1505 assertions, 100% passing**
 (`backend/`). Mobile: 10 Dart test files under `mobile/test/`; the Flutter SDK is
 not available on the development machine, so `flutter test` runs in CI / on a
 developer workstation (see AD-011).
@@ -432,18 +433,22 @@ Permission names are derived from PROJECT_SPECIFICATION.md §6.
 
 ---
 
-## Phase 15: Session Close/Cancel — ⏭️ DEFERRED (still pending)
+## Phase 15: Session Close/Cancel — ✅ COMPLETE (delivered in Phase 22)
 
-Skipped in the current sequence at the user's direction. No code exists yet; it
-remains an open phase and should be picked up before Phase 20 (audit) closes.
+Deferred during the original sequence; implemented per `ATTENDANCE_ALGORITHM.md`
+§7 as the one gap the end-to-end validation (Phase 22) surfaced. See
+`backend/tests/TEST_REPORT.md` FIX-1.
 
-- [ ] `POST /api/v1/teacher/attendance/{id}/close`
-- [ ] ACTIVE → CLOSED flow
-- [ ] CANCELLED support
-- [ ] WAITING → ABSENT/PENDING_REVIEW
-- [ ] Transaction, audit, concurrent protection
+- [x] `POST /api/v1/teacher/attendance/{id}/close` (`attendance.session.close`)
+- [x] `POST /api/v1/teacher/attendance/{id}/cancel` (`attendance.session.cancel`)
+- [x] ACTIVE → CLOSED / ACTIVE → CANCELLED, one DB transaction
+- [x] WAITING → ABSENT | PENDING_REVIEW per `system_settings.attendance.close.waiting_default_status`
+- [x] Ownership verified (IDOR → `IDOR_ATTEMPT`); audit `ATTENDANCE_SESSION_CLOSED` / `_CANCELLED`
+- [x] Concurrency-safe — atomic `UPDATE … WHERE status = :from` guard
+- [x] Migration `008` seeds `attendance.close.waiting_default_status`
+- [x] Tests: `SessionCloseServiceTest` (10) + the close step of `FullFlowIntegrationTest`
 
-**Commit:** `feat(attendance): implement QRIVO session closing`
+**Commit:** `test: complete QRIVO integration validation`
 
 ---
 
@@ -697,11 +702,20 @@ See [`ACCEPTED_DEVIATIONS.md`](ACCEPTED_DEVIATIONS.md) AD-016.
 
 ---
 
-## Phase 22: Integration Testing
+## Phase 22: Integration Testing — ✅ COMPLETE
 
-- [ ] Complete end-to-end flow test
-- [ ] All security failure path tests
-- [ ] `tests/TEST_REPORT.md`
+- [x] Complete end-to-end flow test — `FullFlowIntegrationTest` walks the full
+      approved chain (Authentication → … → Reporting) through the real HTTP
+      Router, 70 assertions.
+- [x] All security failure path tests — `SecurityFailurePathsTest` covers every
+      `SECURITY_RULES.md` §12 category (22 tests, 138 assertions).
+- [x] `backend/tests/TEST_REPORT.md` — coverage tables + FIX-1 (session
+      close/cancel gap found & fixed) + assurances.
+- [x] Regression: `SessionCloseServiceTest` (10).
+
+**One gap found and fixed:** Phase 15 (session close/cancel) had been deferred;
+implemented per §7. **No security control weakened, no validation bypassed.**
+Backend suite: 586 tests, 1505 assertions, 100% passing.
 
 **Commit:** `test: complete QRIVO integration validation`
 

@@ -151,6 +151,9 @@ $r->addRoute('GET', '/api/v1/admin/reports/department/{id:\d+}',     [AdminRepor
 $r->addRoute('GET', '/api/v1/admin/reports/course/{id:\d+}',         [AdminReportController::class, 'course']);
 $r->addRoute('GET', '/api/v1/admin/reports/attendance-statistics',   [AdminReportController::class, 'statistics']);
 
-// ─── Teacher Attendance (Phase 15) ──────────────────────────────────────
-// $r->addRoute('POST',  '/api/v1/teacher/attendance/{id}/close',                   [AttendanceController::class, 'close']);
+// ─── Session close / cancel (Phase 15 — teacher, ATTENDANCE_ALGORITHM.md §7) ──
+// ACTIVE → CLOSED (remaining WAITING → ABSENT|PENDING_REVIEW per system_settings)
+// or ACTIVE → CANCELLED. Transactional, ownership-checked, audited, concurrency-safe.
+$r->addRoute('POST', '/api/v1/teacher/attendance/{id:\d+}/close',  [AttendanceController::class, 'close']);
+$r->addRoute('POST', '/api/v1/teacher/attendance/{id:\d+}/cancel', [AttendanceController::class, 'cancel']);
 

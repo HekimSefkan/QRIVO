@@ -21,6 +21,7 @@ use QRIVO\Infrastructure\Repository\Attendance\AttendanceRecordRepository;
 use QRIVO\Infrastructure\Repository\Attendance\AttendanceSessionRepository;
 use QRIVO\Infrastructure\Repository\RelationshipRepository;
 use QRIVO\Infrastructure\Repository\ScheduleRepository;
+use QRIVO\Infrastructure\Repository\SystemSettingRepository;
 
 /**
  * Attendance session creation — ATTENDANCE_ALGORITHM.md §2, implemented exactly
@@ -59,8 +60,121 @@ final class AttendanceSessionService extends BaseService
         private readonly ScheduleRepository $schedule,
         private readonly RelationshipRepository $relationships,
         private readonly SecurityLogService $securityLog,
+        private readonly SystemSettingRepository $settings,
     ) {
         parent::__construct($logger);
+    }
+
+    /** ATTENDANCE_ALGORITHM.md §7 step 4 — the two permitted WAITING resolutions. */
+    private const WAITING_RESOLUTIONS = ['ABSENT', 'PENDING_REVIEW'];
+
+    // ─── Session close (ATTENDANCE_ALGORITHM.md §7) ─────────────────────────────
+
+    /**
+     * Close an ACTIVE session the teacher owns.
+     *
+     *   1. status ACTIVE → CLOSED             (atomic, guarded — concurrency-safe)
+     *   2. QR + new submissions become invalid (enforced by QrService / ChallengeService,
+     *      which already reject a non-ACTIVE session)
+     *   3. remaining WAITING → ABSENT | PENDING_REVIEW (per `system_settings`)
+     *   4. one transaction
+     *   5. audit log
+     *
+     * @param array<string, mixed> $actor
+     * @return array{session: array<string, mixed>, counts: array<string, int>}
+     */
+    public function close(array $actor, int $sessionId, ?\DateTimeImmutable $at = null): array
+    {
+        $at ??= new \DateTimeImmutable('now');
+        $session = $this->assertOwnedSession($actor, $sessionId, 'close attendance session');
+
+        $waitingStatus = $this->waitingResolutionStatus();
+
+        $result = $this->db->transaction(function () use ($sessionId, $at, $waitingStatus): array {
+            $locked = $this->sessions->findRowForUpdate($sessionId);
+            if ($locked === null) {
+                throw new NotFoundException('Attendance session not found.');
+            }
+            if (($locked['status'] ?? null) !== 'ACTIVE') {
+                throw new ConflictException('This attendance session is already ' . strtolower((string) $locked['status']) . '.');
+            }
+
+            $marked   = $at->format('Y-m-d H:i:s');
+            $resolved = $this->records->markRemainingWaiting($sessionId, $waitingStatus, $marked);
+
+            if (!$this->sessions->transitionStatus($sessionId, 'ACTIVE', 'CLOSED', $marked)) {
+                // Lost the race — another close committed first.
+                throw new ConflictException('This attendance session is already closed.');
+            }
+
+            return ['resolved' => $resolved];
+        });
+
+        $this->securityLog->recordAuditLog(
+            'ATTENDANCE_SESSION_CLOSED',
+            (int) $actor['user_id'],
+            'attendance_session',
+            $sessionId,
+            ['status' => 'ACTIVE'],
+            [
+                'status'                  => 'CLOSED',
+                'waiting_resolved_to'     => $waitingStatus,
+                'waiting_resolved_count'  => $result['resolved'],
+            ],
+            null,
+            is_string($actor['ip_address'] ?? null) ? $actor['ip_address'] : null,
+        );
+
+        return $this->present($sessionId);
+    }
+
+    // ─── Session cancel (ATTENDANCE_ALGORITHM.md §7) ───────────────────────────
+
+    /**
+     * Cancel an ACTIVE session the teacher owns. The session is voided —
+     * attendance records are left untouched (they carry no meaning for a
+     * cancelled session). Audit log required.
+     *
+     * @param array<string, mixed> $actor
+     * @param array<string, mixed> $input  { reason?: string }
+     * @return array{session: array<string, mixed>, counts: array<string, int>}
+     */
+    public function cancel(array $actor, int $sessionId, array $input = [], ?\DateTimeImmutable $at = null): array
+    {
+        $at ??= new \DateTimeImmutable('now');
+
+        (new Validator())->validate($input, ['reason' => 'string|max_length:500']);
+        $reason = isset($input['reason']) && is_string($input['reason']) && trim($input['reason']) !== ''
+            ? trim($input['reason'])
+            : null;
+
+        $this->assertOwnedSession($actor, $sessionId, 'cancel attendance session');
+
+        $this->db->transaction(function () use ($sessionId, $at): void {
+            $locked = $this->sessions->findRowForUpdate($sessionId);
+            if ($locked === null) {
+                throw new NotFoundException('Attendance session not found.');
+            }
+            if (($locked['status'] ?? null) !== 'ACTIVE') {
+                throw new ConflictException('Only an active attendance session can be cancelled.');
+            }
+            if (!$this->sessions->transitionStatus($sessionId, 'ACTIVE', 'CANCELLED', $at->format('Y-m-d H:i:s'))) {
+                throw new ConflictException('This attendance session can no longer be cancelled.');
+            }
+        });
+
+        $this->securityLog->recordAuditLog(
+            'ATTENDANCE_SESSION_CANCELLED',
+            (int) $actor['user_id'],
+            'attendance_session',
+            $sessionId,
+            ['status' => 'ACTIVE'],
+            ['status' => 'CANCELLED'],
+            $reason,
+            is_string($actor['ip_address'] ?? null) ? $actor['ip_address'] : null,
+        );
+
+        return $this->present($sessionId);
     }
 
     /**
@@ -199,6 +313,49 @@ final class AttendanceSessionService extends BaseService
     }
 
     // ─── Internals ─────────────────────────────────────────────────────────────
+
+    /**
+     * The session must exist and be owned by the calling teacher. An
+     * ownership mismatch is an IDOR attempt.
+     *
+     * @param array<string, mixed> $actor
+     * @return array<string, mixed> the session row
+     */
+    private function assertOwnedSession(array $actor, int $sessionId, string $action): array
+    {
+        $row = $this->sessions->findRow($sessionId);
+        if ($row === null) {
+            throw new NotFoundException('Attendance session not found.');
+        }
+
+        $teacherId = $this->relationships->findTeacherIdForUser((int) $actor['user_id']);
+        if ($teacherId === null || (int) $row['teacher_id'] !== $teacherId) {
+            $this->securityLog->recordSecurityEvent(
+                SecurityEventType::IDOR_ATTEMPT,
+                'HIGH',
+                isset($actor['user_id']) && is_numeric($actor['user_id']) ? (int) $actor['user_id'] : null,
+                is_string($actor['ip_address'] ?? null) ? $actor['ip_address'] : null,
+                is_string($actor['user_agent'] ?? null) ? $actor['user_agent'] : null,
+                ['action' => $action, 'attendance_session_id' => $sessionId],
+            );
+            throw new ForbiddenException('You are not authorized to manage this attendance session.');
+        }
+
+        return $row;
+    }
+
+    /**
+     * The status a WAITING record resolves to on close — from `system_settings`
+     * (`attendance.close.waiting_default_status`), defaulting to ABSENT
+     * (OQ-001 / ATTENDANCE_ALGORITHM.md §7). An unrecognised setting falls back
+     * to ABSENT rather than corrupting the ENUM.
+     */
+    private function waitingResolutionStatus(): string
+    {
+        $value = strtoupper((string) $this->settings->get('attendance.close.waiting_default_status', 'ABSENT'));
+
+        return in_array($value, self::WAITING_RESOLUTIONS, true) ? $value : 'ABSENT';
+    }
 
     /**
      * @return array{session: array<string, mixed>, counts: array<string, int>}
