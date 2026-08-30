@@ -9,6 +9,51 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 
 ## [Unreleased]
 
+### Added (Risk Scoring — Phase 19)
+
+The exact spec model — PROJECT_SPECIFICATION.md §6.14, ATTENDANCE_ALGORITHM.md §9,
+SECURITY_RULES.md §8. Migration `008` adds `system_settings`.
+
+**Centralised engine**
+
+`Application/Service/Security/RiskScoringService` is the **single**
+`RiskEvaluatorInterface` implementation — every attendance attempt is scored
+there and nowhere else. The Phase-12 `Attendance/RiskEvaluationService` is
+**removed**; its `attendance.risk.*` config keys move to `config/risk.php`.
+
+**Signals — exactly the ten in the spec** (`Domain/Enum/RiskSignal`, nothing
+added): `EXPIRED_QR`, `REPLAY_ATTEMPT`, `INVALID_CHALLENGE`, `EXCESSIVE_RETRY`,
+`DUPLICATE_ATTENDANCE`, `NEW_DEVICE`, `MULTIPLE_DEVICE_ACTIVITY`, `SUSPICIOUS_IP`,
+`LOCATION_MISMATCH`, `UNAUTHORIZED_RELATIONSHIP`.
+
+Detection: device signals from `DeviceSessionService`; `EXCESSIVE_RETRY` from the
+challenge count in the window; QR / challenge / duplicate / unauthorized from the
+user's recent `security_events` (configurable look-back); `SUSPICIOUS_IP` from a
+config deny-list (empty by default — OQ-010); `LOCATION_MISMATCH` only when a
+caller supplies it (OQ-003).
+
+**Scoring** (`Domain/Risk/RiskPolicy`): `score = Σ weight(signal)`, capped at 100
+→ level by the MEDIUM / HIGH / BLOCKED thresholds → outcome by the **fixed** §9
+table (`RiskLevel::toOutcome()`: LOW/MEDIUM → `PRESENT`, HIGH → `PENDING_REVIEW`,
+BLOCKED → no record). MEDIUM/HIGH also record `RISK_ESCALATION`; BLOCKED records
+`BLOCKED_ATTENDANCE`. Every result is persisted to `risk_assessments`.
+
+**Configurable, never hard-coded** (§6.14): resolution order
+`system_settings` row → `config/risk.php` (`.env` `RISK_*`) →
+`RiskSignal::defaultWeight()`. Migration `008` creates + seeds `system_settings`
+with all risk keys.
+
+**Integration:** `ChallengeService` step 13 calls the engine inside the
+attendance transaction and persists the assessment; step 12 device signals feed
+straight in.
+
+**Tests:** `RiskScoringServiceTest` (one scenario per signal + score→level
+boundaries + 100-cap + signal de-duplication + detection windows +
+`system_settings`/config precedence + escalation-event emission),
+`RiskPolicyTest` (pure maths), reworked risk-outcome cases in
+`ChallengeServiceTest`. Backend suite: **494 tests, 1079 assertions, 100%
+passing**. `ORIGINAL_SPECIFICATION.md` unchanged.
+
 ### Added (Device Session Security — Phase 18)
 
 Implements PROJECT_SPECIFICATION.md §6.13 using only the frozen `device_sessions`

@@ -27,10 +27,11 @@
 | 15 — Session Close/Cancel | ⏭️ Deferred — skipped for now, still pending | — |
 | 16 — Mobile Application Foundation | ✅ Complete | `abe191c` |
 | 17 — Mobile QR Attendance | ✅ Complete | `8306ba6` |
-| 18 — Device Session Security | ✅ Complete | `feat(security): implement QRIVO device session security` |
-| 19–23 | ⛔ Not started | — |
+| 18 — Device Session Security | ✅ Complete | `74a4ff2` |
+| 19 — Risk Scoring | ✅ Complete | `feat(security): implement QRIVO risk scoring` |
+| 20–23 | ⛔ Not started | — |
 
-**Test status at Phase 18:** backend **451 tests, 989 assertions, 100% passing**
+**Test status at Phase 19:** backend **494 tests, 1079 assertions, 100% passing**
 (`backend/`). Mobile: 10 Dart test files under `mobile/test/`; the Flutter SDK is
 not available on the development machine, so `flutter test` runs in CI / on a
 developer workstation (see AD-011).
@@ -42,9 +43,11 @@ database migrations are authored **incrementally, per feature/domain phase**, in
 the same commit as the code that depends on them. The complete schema is already
 designed and frozen in `database/docs/`; each migration file is a transcription
 of one domain group from that frozen design, numbered in FK-dependency order
-(`001_`, `002_`, …). See [`ACCEPTED_DEVIATIONS.md`](ACCEPTED_DEVIATIONS.md)
-AD-001. A consolidated `database/docs/MIGRATION_GUIDE.md` will be added once the
-schema is substantially complete.
+(`001_`, `002_`, …). Current: `001`–`008` (`008` = `system_settings`, added in
+Phase 19 to hold risk-scoring parameters). See
+[`ACCEPTED_DEVIATIONS.md`](ACCEPTED_DEVIATIONS.md) AD-001. A consolidated
+`database/docs/MIGRATION_GUIDE.md` will be added once the schema is substantially
+complete.
 
 ### Accepted deviations
 
@@ -65,7 +68,10 @@ tests authored but run in CI), AD-012 (`mobile_scanner` for camera/QR decode;
 local `qrivo.` prefix sniff is a UX filter, not a security check), AD-013 (device
 fingerprint = server-derived `sha256(X-Device-Id | UA)`; fingerprint binding is
 log-only unless `enforce_fingerprint_binding`; device thresholds in
-`config/security.php` not `system_settings`; no migration needed).
+`config/security.php` not `system_settings`; no migration needed), AD-014 (risk
+scoring = additive weighted model; the 10 spec signals only; weights/thresholds
+in `system_settings` → `config/risk.php` → defaults; `LOCATION_MISMATCH` and
+`SUSPICIOUS_IP` data-gated per OQ-003 / OQ-010).
 `ORIGINAL_SPECIFICATION.md` remains unchanged.
 
 ---
@@ -556,12 +562,42 @@ Phase 19. See [`ACCEPTED_DEVIATIONS.md`](ACCEPTED_DEVIATIONS.md) AD-013.
 
 ---
 
-## Phase 19: Risk Scoring
+## Phase 19: Risk Scoring — ✅ COMPLETE
 
-- [ ] Risk signal evaluation service
-- [ ] Configurable risk levels (LOW, MEDIUM, HIGH, BLOCKED)
-- [ ] Integration with attendance pipeline
-- [ ] Tests for each risk scenario
+The exact spec model (PROJECT_SPECIFICATION.md §6.14, ATTENDANCE_ALGORITHM.md §9,
+SECURITY_RULES.md §8). Migration `008` adds `system_settings`.
+
+- [x] **Centralised** engine — `Application\Service\Security\RiskScoringService`
+      is the sole `RiskEvaluatorInterface` implementation; the Phase-12
+      `RiskEvaluationService` is deleted. Every attendance attempt is scored here.
+- [x] Signal catalogue = the spec's **ten**, fixed in `Domain\Enum\RiskSignal`:
+      `EXPIRED_QR`, `REPLAY_ATTEMPT`, `INVALID_CHALLENGE`, `EXCESSIVE_RETRY`,
+      `DUPLICATE_ATTENDANCE`, `NEW_DEVICE`, `MULTIPLE_DEVICE_ACTIVITY`,
+      `SUSPICIOUS_IP`, `LOCATION_MISMATCH`, `UNAUTHORIZED_RELATIONSHIP`. Nothing
+      invented.
+- [x] Scoring mechanism — `score = Σ weight(signal)` capped at 100 →
+      `RiskPolicy::levelForScore()` (MEDIUM/HIGH/BLOCKED thresholds) →
+      `RiskLevel::toOutcome()` (fixed §9: LOW/MEDIUM→PRESENT, HIGH→PENDING_REVIEW,
+      BLOCKED→no record).
+- [x] Configurable, never hard-coded (§6.14) — `system_settings` row →
+      `config/risk.php` (`.env` `RISK_*`) → `RiskSignal::defaultWeight()`.
+- [x] Signal detection — device signals from `DeviceSessionService`;
+      `EXCESSIVE_RETRY` from the challenge count; QR/challenge/duplicate/
+      unauthorized from the caller's recent `security_events` (look-back window);
+      `SUSPICIOUS_IP` from a config deny-list (empty default, OQ-010);
+      `LOCATION_MISMATCH` only when supplied (OQ-003).
+- [x] Integration with the attendance pipeline — `ChallengeService` step 13 calls
+      the engine inside the transaction; the result is persisted to
+      `risk_assessments`; BLOCKED → `deny()` (no record, challenge consumed).
+- [x] Integration with security events — MEDIUM/HIGH → `RISK_ESCALATION`,
+      BLOCKED → `BLOCKED_ATTENDANCE` (level→event mapping on `RiskLevel`).
+- [x] Tests for every defined scenario — `RiskScoringServiceTest` (one case per
+      signal + boundaries + cap + de-dup + windows + `system_settings`/config
+      precedence + escalation events), `RiskPolicyTest` (pure maths), plus the
+      reworked risk-outcome cases in `ChallengeServiceTest`.
+
+See [`ACCEPTED_DEVIATIONS.md`](ACCEPTED_DEVIATIONS.md) AD-014 and
+`OPEN_QUESTIONS.md` OQ-003 / OQ-010 (interim resolutions).
 
 **Commit:** `feat(security): implement QRIVO risk scoring`
 

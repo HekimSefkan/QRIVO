@@ -14,9 +14,7 @@ use QRIVO\Domain\Contract\RiskEvaluatorInterface;
 use QRIVO\Domain\Entity\Attendance\QrChallenge;
 use QRIVO\Domain\Enum\ChallengeFailureReason;
 use QRIVO\Domain\Enum\QrValidationReason;
-use QRIVO\Domain\Enum\RiskLevel;
 use QRIVO\Domain\Enum\RiskOutcome;
-use QRIVO\Domain\Enum\SecurityEventType;
 use QRIVO\Domain\Exception\ConflictException;
 use QRIVO\Domain\Exception\ForbiddenException;
 use QRIVO\Domain\Exception\NotFoundException;
@@ -224,9 +222,16 @@ final class ChallengeService extends BaseService
             isset($actor['device_fingerprint']) && is_string($actor['device_fingerprint']) ? $actor['device_fingerprint'] : null,
         );
 
+        // Context handed to the centralised risk engine (step 13).
+        $riskContext = [
+            'device_signals' => $deviceSignals,
+            'user_id'        => (isset($actor['user_id']) && is_numeric($actor['user_id'])) ? (int) $actor['user_id'] : null,
+            'ip_address'     => $this->ip($actor),
+        ];
+
         // ─── Steps 7 (atomic) · 10 · 13 · attendance — one transaction ────────
         /** @var array{type: string, status?: string, risk: RiskAssessment} $result */
-        $result = $this->db->transaction(function () use ($challenge, $session, $studentId, $at, $deviceSignals): array {
+        $result = $this->db->transaction(function () use ($challenge, $session, $studentId, $at, $riskContext): array {
             $locked = $this->challenges->findByUuid($challenge->uuid, lock: true);
             if ($locked === null || $locked['used_at'] !== null) {
                 return ['type' => 'concurrent_use', 'risk' => RiskAssessment::low()];
@@ -244,8 +249,8 @@ final class ChallengeService extends BaseService
             }
 
             // Step 13: risk evaluation — always runs, result always persisted.
-            // Device/session signals (step 12) are folded in here.
-            $risk = $this->risk->evaluate($studentId, (int) $session['id'], $at, ['device_signals' => $deviceSignals]);
+            // Centralised in RiskScoringService; device/history/retry signals folded in.
+            $risk = $this->risk->evaluate($studentId, (int) $session['id'], $at, $riskContext);
             $this->riskAssessments->create(array_merge($risk->toRow(), [
                 'qr_challenge_id'       => (int) $locked['id'],
                 'student_id'            => $studentId,
@@ -290,15 +295,23 @@ final class ChallengeService extends BaseService
 
         $risk = $result['risk'];
 
-        // MEDIUM → "PRESENT + SECURITY_EVENT" (ATTENDANCE_ALGORITHM.md §9).
-        if ($risk->level === RiskLevel::MEDIUM) {
+        // §9 outcomes: MEDIUM → "PRESENT + SECURITY_EVENT"; HIGH → PENDING_REVIEW
+        // (also recorded). The level → event mapping lives on RiskLevel so it is
+        // defined once. BLOCKED is handled by deny() above (never reaches here).
+        $riskEventType = $risk->level->securityEventType();
+        if ($riskEventType !== null) {
             $this->securityLog->recordSecurityEvent(
-                SecurityEventType::RISK_ESCALATION,
-                'MEDIUM',
+                $riskEventType,
+                $risk->level->securityEventSeverity(),
                 (int) $actor['user_id'],
                 $this->ip($actor),
                 $this->ua($actor),
-                ['attendance_session_id' => (int) $session['id'], 'signals' => $risk->signals],
+                [
+                    'attendance_session_id' => (int) $session['id'],
+                    'risk_level'            => $risk->level->value,
+                    'risk_score'            => $risk->score,
+                    'signals'               => $risk->signals,
+                ],
             );
         }
 

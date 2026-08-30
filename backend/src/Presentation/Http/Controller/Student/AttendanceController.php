@@ -6,8 +6,8 @@ namespace QRIVO\Presentation\Http\Controller\Student;
 
 use QRIVO\Application\Service\Attendance\ChallengeService;
 use QRIVO\Application\Service\Attendance\QrService;
-use QRIVO\Application\Service\Attendance\RiskEvaluationService;
 use QRIVO\Application\Service\Security\DeviceSessionService;
+use QRIVO\Application\Service\Security\RiskScoringService;
 use QRIVO\Application\Service\SecurityLogService;
 use QRIVO\Application\Validation\Validator;
 use QRIVO\Domain\Enum\Permission;
@@ -20,6 +20,7 @@ use QRIVO\Infrastructure\Repository\AuditLogRepository;
 use QRIVO\Infrastructure\Repository\DeviceSessionRepository;
 use QRIVO\Infrastructure\Repository\RelationshipRepository;
 use QRIVO\Infrastructure\Repository\SecurityEventRepository;
+use QRIVO\Infrastructure\Repository\SystemSettingRepository;
 use QRIVO\Presentation\Http\BaseController;
 use QRIVO\Presentation\Http\Request;
 use QRIVO\Presentation\Http\Response\JsonResponse;
@@ -127,7 +128,14 @@ final class AttendanceController extends BaseController
             $this->logger,
             $this->db,
             $this->qrService(),
-            new RiskEvaluationService($this->logger, $challengeRepo, $this->config),
+            new RiskScoringService(
+                $this->logger,
+                $challengeRepo,
+                new SecurityEventRepository($this->db),
+                new SystemSettingRepository($this->db),
+                $this->securityLog(),
+                $this->config,
+            ),
             new AttendanceSessionRepository($this->db),
             $challengeRepo,
             new AttendanceRecordRepository($this->db),

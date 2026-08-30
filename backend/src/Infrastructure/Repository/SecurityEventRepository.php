@@ -25,4 +25,28 @@ final class SecurityEventRepository extends BaseRepository
     {
         $this->insert('security_events', $data);
     }
+
+    /**
+     * Count this user's security events by type since a cutoff. Used by risk
+     * scoring to weigh recent abuse (ATTENDANCE_ALGORITHM.md §9).
+     *
+     * @return array<string, int> event_type => count
+     */
+    public function countByUserSince(int $userId, string $since): array
+    {
+        $rows = $this->db->fetchAll(
+            'SELECT `event_type`, COUNT(*) AS c
+               FROM `security_events`
+              WHERE `user_id` = :uid AND `created_at` >= :since
+           GROUP BY `event_type`',
+            ['uid' => $userId, 'since' => $since],
+        );
+
+        $out = [];
+        foreach ($rows as $row) {
+            $out[(string) $row['event_type']] = (int) $row['c'];
+        }
+
+        return $out;
+    }
 }

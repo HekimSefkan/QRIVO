@@ -225,6 +225,11 @@ trait AcademicSchemaTrait
                 FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE RESTRICT,
                 FOREIGN KEY (attendance_session_id) REFERENCES attendance_sessions(id) ON DELETE RESTRICT
             );
+            CREATE TABLE system_settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, "key" TEXT NOT NULL UNIQUE, "value" TEXT NOT NULL,
+                type TEXT NOT NULL DEFAULT 'string', description TEXT,
+                created_at TEXT NOT NULL DEFAULT '2026-01-01 00:00:00', updated_at TEXT NOT NULL DEFAULT '2026-01-01 00:00:00'
+            );
         SQL);
 
         // Seed roles/permissions from the canonical map.
@@ -269,6 +274,18 @@ trait AcademicSchemaTrait
             $this->createMock(\QRIVO\Domain\Contract\LoggerInterface::class),
             new SecurityEventRepository($db),
             new AuditLogRepository($db),
+        );
+    }
+
+    private function riskScoringService(Connection $db, ?Config $config = null): \QRIVO\Application\Service\Security\RiskScoringService
+    {
+        return new \QRIVO\Application\Service\Security\RiskScoringService(
+            $this->createMock(\QRIVO\Domain\Contract\LoggerInterface::class),
+            new \QRIVO\Infrastructure\Repository\Attendance\QrChallengeRepository($db),
+            new SecurityEventRepository($db),
+            new \QRIVO\Infrastructure\Repository\SystemSettingRepository($db),
+            $this->securityLogService($db),
+            $config ?? new Config(QRIVO_ROOT),
         );
     }
 

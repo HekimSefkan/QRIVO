@@ -535,8 +535,74 @@ authoritative; every mechanism maps to an approved §6.13 bullet and an existing
 `backend/src/Application/Service/Security/DeviceSessionService.php`,
 `backend/src/Application/Service/AuthService.php` (login / refresh / validateToken),
 `backend/src/Presentation/Http/BaseController.php`,
-`backend/src/Application/Service/Attendance/{ChallengeService,RiskEvaluationService}.php`,
+`backend/src/Application/Service/Attendance/ChallengeService.php`,
 `backend/config/security.php`.
+
+---
+
+## AD-014: Risk scoring — additive weighted model; two signals data-gated (Phase 19)
+
+**Source wording:** `PROJECT_SPECIFICATION.md` §6.14 and
+`ATTENDANCE_ALGORITHM.md` §9 list **ten** risk signals, the levels
+`LOW / MEDIUM / HIGH / BLOCKED`, and the outcomes
+`PRESENT / PRESENT+SECURITY_EVENT / PENDING_REVIEW / BLOCKED`.
+`SECURITY_RULES.md` §8: "Risk configuration — `system_settings` or config, NOT
+hard-coded"; "Risk signals — spec-defined".
+
+**What was done (Phase 19):**
+
+1. **Signal catalogue is exactly the spec's ten** — `Domain\Enum\RiskSignal`.
+   Nothing added, nothing dropped. The Phase-18 device-signal names
+   (`DEVICE_MISMATCH`, `MULTIPLE_ACTIVE_DEVICES`) map onto the canonical
+   `MULTIPLE_DEVICE_ACTIVITY`; `NEW_DEVICE` maps 1:1.
+
+2. **Scoring mechanism** (the spec names signals/levels/outcomes but not the
+   arithmetic): `score = Σ configured-weight(signal)`, capped at 100; the score
+   maps to a level by the configured MEDIUM/HIGH/BLOCKED thresholds; the level
+   maps to an outcome by the **fixed** §9 table (`RiskLevel::toOutcome()`).
+   Simple, monotonic, auditable. Chosen defaults order severity the way the
+   spec's own language does (unauthorized relationship is disqualifying; replay /
+   duplicate are serious; an expired QR or a new device alone is minor).
+
+3. **Configuration, never hard-coded** — resolution order
+   `system_settings` row → `config/risk.php` (`.env` `RISK_*`) →
+   `RiskSignal::defaultWeight()`. Migration `008` creates and seeds
+   `system_settings`. Editing a row re-tunes scoring with no deploy.
+
+4. **`LOCATION_MISMATCH` is data-gated (OQ-003).** No GPS collection, room
+   coordinates, or "mismatch" definition exists in the spec. The signal is a
+   first-class member of the catalogue with a configurable weight, but it only
+   fires when a caller explicitly supplies `location_mismatch: true`. Nothing
+   supplies it yet, so it is inert. Interim resolution recorded in `OPEN_QUESTIONS.md`.
+
+5. **`SUSPICIOUS_IP` is deny-list only (OQ-010).** Campus shared WiFi makes an
+   IP heuristic a false-positive engine. The signal fires only for IPs on the
+   configured `risk.ip.suspicious_list` (empty by default ⇒ never). Interim
+   resolution recorded in `OPEN_QUESTIONS.md`.
+
+6. **Reconciliation with the frozen §4 pipeline.** Most spec signals (expired QR,
+   replay, invalid challenge, duplicate, unauthorized relationship) are already
+   *hard rejections* before step 13 in the frozen algorithm. Phase 19 therefore
+   reads them as **recent history**: the same user's `security_events` within a
+   configurable look-back window contribute the corresponding signal to the next
+   *successful* attempt. No algorithm step is added, removed or reordered.
+
+7. `Application\Service\Attendance\RiskEvaluationService` (the Phase-12 basic
+   evaluator) is **replaced** by `Application\Service\Security\RiskScoringService`
+   — one centralised engine (SECURITY_RULES.md §8: "Risk evaluation must be
+   centralized"). The Phase-12/18 `attendance.risk.*` config keys move to
+   `config/risk.php`.
+
+**Why this is acceptable:** no locked decision changes. Signals, levels and
+outcomes are the spec's; the level→outcome table is fixed; every tunable is
+config/`system_settings`. `risk_assessments` schema is used as-is (no migration
+for it). `ORIGINAL_SPECIFICATION.md` unchanged.
+
+**Enforced in:** `backend/src/Domain/Enum/RiskSignal.php`,
+`backend/src/Domain/Enum/RiskLevel.php`, `backend/src/Domain/Risk/RiskPolicy.php`,
+`backend/src/Application/Service/Security/RiskScoringService.php`,
+`backend/src/Application/Service/Attendance/ChallengeService.php`,
+`backend/config/risk.php`, `database/migrations/008_create_system_settings.sql`.
 
 ---
 
