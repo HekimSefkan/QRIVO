@@ -18,6 +18,7 @@ use QRIVO\Infrastructure\Repository\AuditLogRepository;
 use QRIVO\Infrastructure\Repository\RelationshipRepository;
 use QRIVO\Infrastructure\Repository\ScheduleRepository;
 use QRIVO\Infrastructure\Repository\SecurityEventRepository;
+use QRIVO\Infrastructure\Repository\SystemSettingRepository;
 use QRIVO\Presentation\Http\BaseController;
 use QRIVO\Presentation\Http\Request;
 use QRIVO\Presentation\Http\Response\JsonResponse;
@@ -29,8 +30,8 @@ use QRIVO\Presentation\Http\Response\JsonResponse;
  *   GET  /api/v1/teacher/attendance/{id}     — view one of the caller's own sessions
  *   GET  /api/v1/teacher/attendance/{id}/qr  — current dynamic QR for the session (§3)
  *   PATCH /api/v1/teacher/attendance/{attendanceId}/student/{studentId} — manual attendance (§6)
- *
- * Close / cancel are later phases and are not implemented here.
+ *   POST /api/v1/teacher/attendance/{id}/close   — ACTIVE → CLOSED (§7)
+ *   POST /api/v1/teacher/attendance/{id}/cancel  — ACTIVE → CANCELLED (§7)
  */
 final class AttendanceController extends BaseController
 {
@@ -111,6 +112,39 @@ final class AttendanceController extends BaseController
         return $this->success($result, 'Attendance updated.');
     }
 
+    /**
+     * POST /api/v1/teacher/attendance/{id}/close
+     */
+    public function close(Request $request): JsonResponse
+    {
+        $actor = $this->authenticate($request);
+        $this->authorization()->requirePermission($actor, Permission::ATTENDANCE_SESSION_CLOSE, 'close an attendance session');
+
+        return $this->success($this->sessionService()->close($actor, $this->sessionId($request)), 'Attendance session closed.');
+    }
+
+    /**
+     * POST /api/v1/teacher/attendance/{id}/cancel
+     * Body: { "reason"?: string }
+     */
+    public function cancel(Request $request): JsonResponse
+    {
+        $actor = $this->authenticate($request);
+        $this->authorization()->requirePermission($actor, Permission::ATTENDANCE_SESSION_CANCEL, 'cancel an attendance session');
+
+        return $this->success($this->sessionService()->cancel($actor, $this->sessionId($request), $request->getBody()), 'Attendance session cancelled.');
+    }
+
+    private function sessionId(Request $request): int
+    {
+        $id = $request->param('id');
+        if (!is_numeric($id) || (int) $id < 1) {
+            throw new NotFoundException('Attendance session not found.');
+        }
+
+        return (int) $id;
+    }
+
     private function manualService(): ManualAttendanceService
     {
         return new ManualAttendanceService(
@@ -158,6 +192,7 @@ final class AttendanceController extends BaseController
             new ScheduleRepository($this->db),
             new RelationshipRepository($this->db),
             $securityLog,
+            new SystemSettingRepository($this->db),
         );
     }
 }

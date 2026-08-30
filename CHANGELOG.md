@@ -9,6 +9,53 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 
 ## [Unreleased]
 
+### Added (Session Close/Cancel + Integration Validation — Phases 15 & 22)
+
+**Session close / cancel (`ATTENDANCE_ALGORITHM.md` §7 — the one gap the
+end-to-end validation surfaced; Phase 15 had been deferred):**
+
+- `POST /api/v1/teacher/attendance/{id}/close` (`attendance.session.close`) —
+  `ACTIVE → CLOSED` in one transaction: still-`WAITING` records resolve to
+  `ABSENT` or `PENDING_REVIEW` per `system_settings.attendance.close.waiting_default_status`
+  (default `ABSENT`, OQ-001); `end_time` stamped; `ATTENDANCE_SESSION_CLOSED`
+  audit with the resolved count.
+- `POST /api/v1/teacher/attendance/{id}/cancel` (`attendance.session.cancel`) —
+  `ACTIVE → CANCELLED`; attendance records left untouched; optional `reason`
+  audited (`ATTENDANCE_SESSION_CANCELLED`).
+- Ownership verified server-side (mismatch → 403 + `IDOR_ATTEMPT`).
+- Concurrency-safe: `AttendanceSessionRepository::transitionStatus()` is an
+  atomic `UPDATE … WHERE status = :from`; a second concurrent close/cancel
+  changes zero rows and is rejected (409) without corrupting state.
+- QR generation and challenge/verify already reject any non-`ACTIVE` session, so
+  §7 steps 2–3 ("QR validations become invalid", "new submissions blocked")
+  needed no change.
+- Migration `008` seeds the new setting. Config: `attendance.session.close` /
+  `.cancel` permissions (already in the RBAC map).
+
+**End-to-end integration validation (Phase 22):**
+
+- `tests/Unit/Integration/FullFlowIntegrationTest` — the complete approved flow
+  (Authentication → Authorization → Academic structure → Course → Schedule →
+  Attendance session → Dynamic QR → QR scan → Challenge → Challenge response →
+  Security validation → Risk evaluation → Attendance transaction → Live
+  attendance → Manual attendance → Session closing → Reporting), 70 assertions,
+  dispatched through the real HTTP `Router` at every step.
+- `tests/Unit/Integration/SecurityFailurePathsTest` — every failure path in
+  `SECURITY_RULES.md` §12 (auth: invalid login / rate limit / token reuse /
+  post-logout; authz: IDOR / BOLA / privilege escalation / unassigned session;
+  QR: malformed / tampered / expired / nonce replay / duplicate scan; challenge:
+  wrong nonce / wrong student / reuse; attendance: duplicate / non-enrolled /
+  non-member manual / cancelled-session manual; generic: SQL injection / XSS /
+  concurrent session start / challenge rate-limit abuse), 22 tests.
+- `tests/TEST_REPORT.md` — full flow + failure-path coverage tables, the one gap
+  found and fixed (FIX-1), and the assurances (no control weakened, no
+  validation bypassed).
+- Regression: `SessionCloseServiceTest` (10 tests).
+
+**No security control was weakened and no validation step was bypassed.**
+Backend suite: **586 tests, 1505 assertions, 100% passing**.
+`ORIGINAL_SPECIFICATION.md` unchanged.
+
 ### Added (Attendance Reporting — Phase 21)
 
 The reports defined in PROJECT_SPECIFICATION.md §6.16. Read-only over existing

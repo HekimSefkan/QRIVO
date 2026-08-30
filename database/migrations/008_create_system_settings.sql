@@ -49,4 +49,6 @@ INSERT IGNORE INTO `system_settings` (`key`, `value`, `type`, `description`) VAL
     ('risk.retry.window_seconds',   '300', 'integer', 'Look-back for counting challenge requests per (student, session)'),
     ('risk.retry.excessive_count',  '6',   'integer', 'Challenge requests in the window that trip EXCESSIVE_RETRY'),
     ('risk.history.window_seconds', '900', 'integer', 'Look-back over security_events for recent-abuse signals'),
-    ('risk.ip.suspicious_list',     '',    'string',  'Comma-separated exact IPs that trip SUSPICIOUS_IP (empty ⇒ never; OQ-010)');
+    ('risk.ip.suspicious_list',     '',    'string',  'Comma-separated exact IPs that trip SUSPICIOUS_IP (empty ⇒ never; OQ-010)'),
+-- ─── Attendance session close (ATTENDANCE_ALGORITHM.md §7 step 4) ────────────
+    ('attendance.close.waiting_default_status', 'ABSENT', 'string', 'Status a still-WAITING record resolves to when a session is closed: ABSENT or PENDING_REVIEW (OQ-001)');

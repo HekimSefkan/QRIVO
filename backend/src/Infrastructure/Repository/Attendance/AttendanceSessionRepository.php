@@ -80,4 +80,38 @@ final class AttendanceSessionRepository extends BaseRepository
     {
         return $this->db->fetchOne('SELECT * FROM `attendance_sessions` WHERE `uuid` = :uuid LIMIT 1', ['uuid' => $uuid]);
     }
+
+    // ─── Session close / cancel (ATTENDANCE_ALGORITHM.md §7) ─────────────────
+
+    /**
+     * Row-lock a session for the close/cancel transaction. No-op on SQLite.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function findRowForUpdate(int $id): ?array
+    {
+        $suffix = $this->db->driverName() === 'mysql' ? ' FOR UPDATE' : '';
+
+        return $this->db->fetchOne("SELECT * FROM `attendance_sessions` WHERE `id` = :id LIMIT 1{$suffix}", ['id' => $id]);
+    }
+
+    /**
+     * Atomically move a session from one status to another. The `status = :from`
+     * guard means a second concurrent close/cancel changes zero rows and can be
+     * rejected without corrupting state (§7 "Concurrent close requests must NOT
+     * corrupt session state").
+     *
+     * @return bool true only if THIS call performed the transition
+     */
+    public function transitionStatus(int $id, string $from, string $to, ?string $endTime = null): bool
+    {
+        $now = date('Y-m-d H:i:s');
+
+        return $this->db->execute(
+            'UPDATE `attendance_sessions`
+                SET `status` = :to, `end_time` = COALESCE(`end_time`, :endtime), `updated_at` = :upd
+              WHERE `id` = :id AND `status` = :from',
+            ['to' => $to, 'endtime' => $endTime ?? $now, 'upd' => $now, 'id' => $id, 'from' => $from],
+        ) > 0;
+    }
 }

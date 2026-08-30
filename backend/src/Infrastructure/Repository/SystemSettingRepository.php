@@ -38,4 +38,21 @@ final class SystemSettingRepository extends BaseRepository
 
         return $out;
     }
+
+    /**
+     * A single setting value, or $default when the key (or the table) is absent.
+     */
+    public function get(string $key, ?string $default = null): ?string
+    {
+        try {
+            $row = $this->db->fetchOne(
+                'SELECT `value` FROM `system_settings` WHERE `key` = :k LIMIT 1',
+                ['k' => $key],
+            );
+        } catch (\Throwable) {
+            return $default;
+        }
+
+        return $row === null ? $default : (string) $row['value'];
+    }
 }
