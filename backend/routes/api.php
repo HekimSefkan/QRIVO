@@ -21,6 +21,7 @@ use QRIVO\Presentation\Http\Controller\Admin\CourseScheduleController;
 use QRIVO\Presentation\Http\Controller\Admin\DepartmentController;
 use QRIVO\Presentation\Http\Controller\Admin\FacultyController;
 use QRIVO\Presentation\Http\Controller\Admin\ProgramController;
+use QRIVO\Presentation\Http\Controller\Admin\ReportController as AdminReportController;
 use QRIVO\Presentation\Http\Controller\Admin\RoomController;
 use QRIVO\Presentation\Http\Controller\Admin\SchoolController;
 use QRIVO\Presentation\Http\Controller\Admin\SecurityEventController;
@@ -33,10 +34,12 @@ use QRIVO\Presentation\Http\Controller\Admin\TeacherCourseController;
 use QRIVO\Presentation\Http\Controller\Auth\AuthController;
 use QRIVO\Presentation\Http\Controller\HealthController;
 use QRIVO\Presentation\Http\Controller\Student\AttendanceController as StudentAttendanceController;
+use QRIVO\Presentation\Http\Controller\Student\ReportController as StudentReportController;
 use QRIVO\Presentation\Http\Controller\Student\SelfController as StudentSelfController;
 use QRIVO\Presentation\Http\Controller\Teacher\AttendanceController;
 use QRIVO\Presentation\Http\Controller\Teacher\AttendanceEligibilityController;
 use QRIVO\Presentation\Http\Controller\Teacher\LiveAttendanceController;
+use QRIVO\Presentation\Http\Controller\Teacher\ReportController as TeacherReportController;
 
 // ─── Health ──────────────────────────────────────────────────────────────────
 $r->addRoute('GET', '/api/v1/health', [HealthController::class, 'check']);
@@ -132,6 +135,21 @@ $r->addRoute('GET', '/api/v1/student/attendance/history',  [StudentSelfControlle
 // attendanceId = attendance session id; studentId = students.id. Every change
 // is authorization-gated and audited (ATTENDANCE_ALGORITHM.md §6).
 $r->addRoute('PATCH', '/api/v1/teacher/attendance/{attendanceId:\d+}/student/{studentId:\d+}', [AttendanceController::class, 'updateStudent']);
+
+// ─── Attendance reporting (Phase 21) ────────────────────────────────────
+// Authorization is enforced per role: students see only their own data;
+// teachers only their assigned courses/classes/students; admins only per the
+// `report.institution.view` permission. Pagination + filtering on every list.
+$r->addRoute('GET', '/api/v1/student/reports/attendance',            [StudentReportController::class, 'attendance']);
+
+$r->addRoute('GET', '/api/v1/teacher/reports/course/{id:\d+}',       [TeacherReportController::class, 'course']);
+$r->addRoute('GET', '/api/v1/teacher/reports/class/{id:\d+}',        [TeacherReportController::class, 'classReport']);
+$r->addRoute('GET', '/api/v1/teacher/reports/student/{id:\d+}',      [TeacherReportController::class, 'student']);
+
+$r->addRoute('GET', '/api/v1/admin/reports/institution',             [AdminReportController::class, 'institution']);
+$r->addRoute('GET', '/api/v1/admin/reports/department/{id:\d+}',     [AdminReportController::class, 'department']);
+$r->addRoute('GET', '/api/v1/admin/reports/course/{id:\d+}',         [AdminReportController::class, 'course']);
+$r->addRoute('GET', '/api/v1/admin/reports/attendance-statistics',   [AdminReportController::class, 'statistics']);
 
 // ─── Teacher Attendance (Phase 15) ──────────────────────────────────────
 // $r->addRoute('POST',  '/api/v1/teacher/attendance/{id}/close',                   [AttendanceController::class, 'close']);

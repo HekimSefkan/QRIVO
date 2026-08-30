@@ -51,7 +51,7 @@ backend/
 │   ├── Application/
 │   │   ├── DTO/            # Base + Auth DTOs
 │   │   ├── Policy/         # SelfOwnedResourcePolicy, AttendanceAuthorizationPolicy
-│   │   ├── Service/        # Auth*, Authorization*, SecurityLog*, AttendanceEligibility*, Service/{Academic (11), Schedule (6), Attendance: Session/Qr/Challenge/LiveAttendance/ManualAttendance, Security: DeviceSession/RiskScoring/AuditQuery}
+│   │   ├── Service/        # Auth*, Authorization*, SecurityLog*, AttendanceEligibility*, Service/{Academic (11), Schedule (6), Attendance: Session/Qr/Challenge/LiveAttendance/ManualAttendance, Security: DeviceSession/RiskScoring/AuditQuery, Report: Abstract/Teacher/Admin/Student}
 │   │   └── Validation/     # Validator — input validation rules engine
 │   ├── Infrastructure/
 │   │   ├── Config/         # Config — dot-notation config loader from PHP files + ENV
@@ -60,7 +60,7 @@ backend/
 │   │   └── Repository/     # Base/AbstractCrud/Reference/Schedule/Relationship, Repository/{Academic,Schedule,Attendance}/*
 │   └── Presentation/
 │       └── Http/
-│           ├── Controller/        # Health, Auth/*, Admin/* (16 + SecurityEvent + AuditLog), Teacher/{AttendanceEligibility,Attendance,LiveAttendance}, Student/Attendance
+│           ├── Controller/        # Health, Auth/*, Admin/* (16 + SecurityEvent + AuditLog + Report), Teacher/{AttendanceEligibility,Attendance,LiveAttendance,Report}, Student/{Attendance,Self,Report}
 │           ├── Middleware/        # Cors, JsonBody, Auth, Authorization, MiddlewarePipeline
 │           ├── Response/          # JsonResponse — standard API envelope
 │           ├── BaseController.php
@@ -231,6 +231,10 @@ is scoped to the caller's own `students` row — the student id is resolved
 server-side from the token, never taken from the request. Teachers and admins
 without the self-view permissions receive 403.
 
+**Attendance reporting (Phase 21):** see the dedicated section below —
+`/api/v1/{student,teacher,admin}/reports/*`, each permission-gated and scoped to
+the caller's role.
+
 List endpoints accept `?page`, `?per_page`, `?search`, and id filters
 (e.g. `?school_id=`, `?academic_term_id=`). Responses are paginated with a `meta` block.
 
@@ -397,6 +401,32 @@ Read (admin, paginated + filtered, newest first):
 `attendance_session_id`, `from`, `to`. `audit-logs` filters: `event_type`,
 `actor_user_id`, `target_entity`, `target_id`, `from`, `to`.
 
+### Attendance reporting (PROJECT_SPECIFICATION.md §6.16)
+
+Read-only aggregations over `attendance_records` / `attendance_sessions`. One
+repository (`Report\AttendanceReportRepository`), one query/validation base
+(`Report\AbstractReportService`), one service per role. Authorization is
+enforced **before any row is read**.
+
+| Method | Endpoint | Auth | Scope |
+|--------|----------|------|-------|
+| `GET` | `/api/v1/student/reports/attendance` | `report.self.view` | own records only (student id from token) |
+| `GET` | `/api/v1/teacher/reports/course/{id}` | `report.course.view` | a course the teacher teaches — per-session |
+| `GET` | `/api/v1/teacher/reports/class/{id}` | `report.course.view` | a class the teacher is assigned to — per-student |
+| `GET` | `/api/v1/teacher/reports/student/{id}` | `report.course.view` | a student's records, restricted to the teacher's own classes/courses |
+| `GET` | `/api/v1/admin/reports/institution` | `report.institution.view` | institution-wide |
+| `GET` | `/api/v1/admin/reports/department/{id}` | `report.institution.view` | a department |
+| `GET` | `/api/v1/admin/reports/course/{id}` | `report.institution.view` | a course |
+| `GET` | `/api/v1/admin/reports/attendance-statistics` | `report.institution.view` | institution-wide stats |
+
+Filters (whitelisted per report): `course_id`, `class_id`, `academic_term_id`,
+`status`, `source`, `session_status`, `from`, `to`, plus institutional ids for
+admin reports; invalid input → 422. Row-level lists (`sessions`, `students`,
+`records`) carry a `meta` block (`page`, `per_page`, `total`, `total_pages`);
+`per_page` is capped at 100. Every report returns a `summary` block with per-
+status counts and `present_rate` (= present / marked, where marked excludes
+`WAITING`).
+
 ---
 
 ## Development Phases
@@ -419,6 +449,7 @@ This backend is being built incrementally:
 - [x] Phase 18 — Device Session Security
 - [x] Phase 19 — Risk Scoring
 - [x] Phase 20 — Security Events & Audit
+- [x] Phase 21 — Attendance Reporting
 - [ ] ...
 
 See [`docs/PROJECT_SPECIFICATION.md`](../docs/PROJECT_SPECIFICATION.md) for the full phase list.

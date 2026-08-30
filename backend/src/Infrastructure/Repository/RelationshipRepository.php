@@ -201,6 +201,89 @@ final class RelationshipRepository extends BaseRepository
         return $this->safeExists($sql . ' LIMIT 1', $bindings);
     }
 
+    /**
+     * The class ids a teacher (by user id) is assigned to teach. Used to scope
+     * teacher reports (PROJECT_SPECIFICATION.md §6.16 — "only their authorized
+     * courses/classes").
+     *
+     * @return list<int>
+     */
+    public function teacherClassIds(int $userId, ?int $academicTermId = null): array
+    {
+        return $this->idList(
+            'SELECT DISTINCT tca.`class_id` AS v
+               FROM `teacher_class_assignments` tca
+               JOIN `teachers` t ON t.`id` = tca.`teacher_id`
+              WHERE t.`user_id` = :uid AND t.`deleted_at` IS NULL',
+            'tca.`academic_term_id`',
+            $userId,
+            $academicTermId,
+        );
+    }
+
+    /**
+     * The course ids a teacher (by user id) is responsible for.
+     *
+     * @return list<int>
+     */
+    public function teacherCourseIds(int $userId, ?int $academicTermId = null): array
+    {
+        return $this->idList(
+            'SELECT DISTINCT tc.`course_id` AS v
+               FROM `teacher_courses` tc
+               JOIN `teachers` t ON t.`id` = tc.`teacher_id`
+              WHERE t.`user_id` = :uid AND t.`deleted_at` IS NULL',
+            'tc.`academic_term_id`',
+            $userId,
+            $academicTermId,
+        );
+    }
+
+    /**
+     * Does this teacher (by user id) share at least one class with this student
+     * (by `students.id`)? The authorization basis for a teacher viewing an
+     * individual student's attendance report.
+     */
+    public function teacherSharesClassWithStudent(int $userId, int $studentId, ?int $academicTermId = null): bool
+    {
+        $sql =
+            'SELECT 1
+               FROM `teacher_class_assignments` tca
+               JOIN `teachers` t ON t.`id` = tca.`teacher_id`
+               JOIN `student_class_assignments` sca ON sca.`class_id` = tca.`class_id`
+              WHERE t.`user_id` = :uid
+                AND t.`deleted_at` IS NULL
+                AND sca.`student_id` = :sid';
+        $bindings = ['uid' => $userId, 'sid' => $studentId];
+
+        if ($academicTermId !== null) {
+            $sql .= ' AND tca.`academic_term_id` = :tid AND sca.`academic_term_id` = :tid';
+            $bindings['tid'] = $academicTermId;
+        }
+
+        return $this->safeExists($sql . ' LIMIT 1', $bindings);
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function idList(string $sql, string $termColumn, int $userId, ?int $academicTermId): array
+    {
+        $bindings = ['uid' => $userId];
+        if ($academicTermId !== null) {
+            $sql .= " AND {$termColumn} = :tid";
+            $bindings['tid'] = $academicTermId;
+        }
+
+        try {
+            $rows = $this->db->fetchAll($sql, $bindings);
+        } catch (\Throwable) {
+            return [];
+        }
+
+        return array_map(static fn (array $r): int => (int) $r['v'], $rows);
+    }
+
     // ─── Fail-closed helpers ─────────────────────────────────────────────────────
 
     /**

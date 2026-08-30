@@ -9,6 +9,63 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 
 ## [Unreleased]
 
+### Added (Attendance Reporting — Phase 21)
+
+The reports defined in PROJECT_SPECIFICATION.md §6.16. Read-only over existing
+tables — **no migration**.
+
+**Structure**
+
+- `Infrastructure/Repository/Report/AttendanceReportRepository` — one set of
+  parameterised aggregation queries (scalar summary, grouped summary over
+  course / class / department / program / student / day / status / source /
+  session-status, paginated sessions / students / records). Takes an
+  already-authorized, whitelisted filter map — it makes no authorization
+  decision.
+- `Application/Service/Report/AbstractReportService` — shared query parsing:
+  whitelisted filters, positive-integer ids, enum validation
+  (`AttendanceStatus` / `AttendanceSource` / `SessionStatus`), date
+  normalisation to a full `Y-m-d H:i:s` bound, `page` / `per_page` (≤ 100). Bad
+  input → 422.
+- one service per role: `TeacherReportService`, `AdminReportService`,
+  `StudentReportService`.
+
+**Endpoints** (every one authenticated + permission-gated + relationship-scoped):
+
+| role | endpoint | permission |
+|---|---|---|
+| student | `GET /api/v1/student/reports/attendance` | `report.self.view` |
+| teacher | `GET /api/v1/teacher/reports/course/{id}` | `report.course.view` |
+| teacher | `GET /api/v1/teacher/reports/class/{id}` | `report.course.view` |
+| teacher | `GET /api/v1/teacher/reports/student/{id}` | `report.course.view` |
+| admin | `GET /api/v1/admin/reports/institution` | `report.institution.view` |
+| admin | `GET /api/v1/admin/reports/department/{id}` | `report.institution.view` |
+| admin | `GET /api/v1/admin/reports/course/{id}` | `report.institution.view` |
+| admin | `GET /api/v1/admin/reports/attendance-statistics` | `report.institution.view` |
+
+**Authorization hierarchy** (enforced server-side, before any row is read):
+
+- **student** — `students.id` resolved from the token; every record returned is
+  the caller's. A `student_id` can never be supplied.
+- **teacher** — the teacher→course / →class relationship is verified; a request
+  outside scope is 403 + `UNAUTHORIZED_ACCESS`. The student-history report is
+  additionally restricted to the teacher's own classes/courses (`class_ids IN
+  (…) AND course_ids IN (…)`) so **other teachers' data is never returned**; a
+  client filter may only narrow that scope.
+- **admin** — `report.institution.view` only; institution-wide (no per-admin
+  partition). Non-holders get 403.
+
+**Pagination + filtering** — row-level lists carry a `meta` block
+(`page`, `per_page`, `total`, `total_pages`); filters: `course_id`, `class_id`,
+`academic_term_id`, `status`, `source`, `session_status`, `from`, `to`, and the
+institutional ids for admin reports.
+
+**Tests** — `AttendanceReportRepositoryTest` (aggregation maths, grouping,
+pagination, list-scoping), `ReportRoutesTest` (the full authorization hierarchy,
+scoping, filter validation 422, pagination, 401/403/404 through the Router).
+Backend suite: **553 tests, 1274 assertions, 100% passing**. Deviation **AD-016**.
+`ORIGINAL_SPECIFICATION.md` unchanged.
+
 ### Added (Security Events & Audit — Phase 20)
 
 Consolidates the trail prior phases built, closes the redaction gap, adds the
