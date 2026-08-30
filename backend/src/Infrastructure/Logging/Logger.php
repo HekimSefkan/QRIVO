@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace QRIVO\Infrastructure\Logging;
 
 use QRIVO\Domain\Contract\LoggerInterface;
+use QRIVO\Domain\Security\LogSanitizer;
 use QRIVO\Infrastructure\Config\Config;
 use Monolog\Handler\RotatingFileHandler;
 use Monolog\Handler\StreamHandler;
@@ -22,10 +23,12 @@ use Monolog\Logger as MonologLogger;
 class Logger implements LoggerInterface
 {
     private MonologLogger $monolog;
+    private readonly LogSanitizer $sanitizer;
 
     public function __construct(private readonly Config $config)
     {
-        $this->monolog = $this->createLogger();
+        $this->monolog   = $this->createLogger();
+        $this->sanitizer = new LogSanitizer();
     }
 
     private function createLogger(): MonologLogger
@@ -113,25 +116,18 @@ class Logger implements LoggerInterface
     }
 
     /**
-     * Sanitize context array to prevent logging sensitive values.
-     * Removes keys that could contain passwords, tokens, or secrets.
+     * Sanitize the context array before it is written to the log file.
+     *
+     * Delegates to the shared {@see LogSanitizer} — the same pass applied to
+     * persisted security events and audit logs (SECURITY_RULES.md §9): sensitive
+     * keys are redacted at any depth, and token-shaped values (PEM keys, JWTs,
+     * long bare hex / base64) are redacted regardless of their key.
      *
      * @param array<string, mixed> $context
      * @return array<string, mixed>
      */
     private function sanitize(array $context): array
     {
-        $sensitiveKeys = [
-            'password', 'password_hash', 'token', 'access_token', 'refresh_token',
-            'secret', 'session_secret', 'api_key', 'private_key', 'authorization',
-        ];
-
-        foreach ($context as $key => $value) {
-            if (in_array(strtolower($key), $sensitiveKeys, true)) {
-                $context[$key] = '[REDACTED]';
-            }
-        }
-
-        return $context;
+        return $this->sanitizer->sanitize($context);
     }
 }

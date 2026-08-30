@@ -606,6 +606,61 @@ for it). `ORIGINAL_SPECIFICATION.md` unchanged.
 
 ---
 
+## AD-015: Central `LogSanitizer`; read-only admin trail endpoints (Phase 20)
+
+**Source wording:** `PROJECT_SPECIFICATION.md` §6.15 ("Security events for: …
+Audit logging for: administrative changes, attendance state changes. Logs must
+NOT expose: passwords, raw tokens, secrets, unnecessary personal data").
+`SECURITY_RULES.md` §9 ("Never Log"), §10, §11. `SECURITY_RULES.md` §7 non-
+functional: "Pagination and filtering on list endpoints". `Permission` enum
+already defines `security.event.view` and `audit.log.view`, granted to `ADMIN`.
+
+**What was done (Phase 20):**
+
+1. **One redaction pass, two call sites.** `Domain\Security\LogSanitizer`
+   recursively redacts (a) keys whose name marks them sensitive — `password`,
+   any `*token*`, `*secret*`, `authorization`, `credential`, `private_key`,
+   `nonce`, `signature`, `fingerprint`, `otp`, `bearer` — at any depth, and
+   (b) string *values* that look like credential material — PEM private-key
+   blocks, JWTs, ≥40-char bare hex or base64url tokens — regardless of key.
+   Over-long strings are truncated. It is applied by `SecurityLogService`
+   **before every `details` / `old_value` / `new_value` is persisted** (the
+   previous code json-encoded the caller's array verbatim), and by `Logger`
+   before every file line (replacing a shallow top-level-key-only redactor).
+   `AuditQueryService` runs it once more on read.
+
+   *The spec says "do not log" secrets; it does not prescribe how. Centralising
+   the guarantee at the persistence choke point — rather than trusting every
+   caller — is a strengthening, not a deviation from, the requirement. Recorded
+   here for visibility because it changes what reaches the database.*
+
+2. **`TOKEN_REFRESHED` audit event** added to `AuthService::refresh` so the
+   authentication-event audit category (§11) is complete (`LOGIN_SUCCESS`,
+   `LOGOUT`, `TOKEN_REFRESHED`). No new enum — it is an `audit_logs` event_type
+   string, consistent with `LOGIN_SUCCESS` / `LOGOUT`.
+
+3. **Read-only admin endpoints** `GET /api/v1/admin/security-events` and
+   `GET /api/v1/admin/audit-logs`, gated by the already-defined
+   `security.event.view` / `audit.log.view` permissions, paginated and filtered.
+   The spec frames security events / audit logs as a *logging* requirement, not
+   an API surface, but the view permissions were pre-defined and unused, and an
+   audit trail nobody can read is not a complete implementation. The tables stay
+   **append-only** — no write, update or delete endpoint exists.
+
+**Why this is acceptable:** no schema change (no migration), no algorithm or
+authentication/authorization model change. The event catalogue
+(`SecurityEventType`) and audit categories are unchanged. Every new endpoint is
+read-only, permission-gated server-side, and returns sanitized data.
+
+**Enforced in:** `backend/src/Domain/Security/LogSanitizer.php`,
+`backend/src/Application/Service/SecurityLogService.php`,
+`backend/src/Infrastructure/Logging/Logger.php`,
+`backend/src/Application/Service/Security/AuditQueryService.php`,
+`backend/src/Application/Service/AuthService.php` (refresh),
+`backend/src/Presentation/Http/Controller/Admin/{SecurityEventController,AuditLogController}.php`.
+
+---
+
 ## Change protocol
 
 New deviations may be added here **only** after review. A deviation that touches

@@ -564,4 +564,63 @@ final class AuthServiceTest extends TestCase
         $this->assertArrayNotHasKey('is_approved', $result->user);
         $this->assertArrayNotHasKey('deleted_at', $result->user);
     }
+
+    // ─── Audit trail for authentication events (SECURITY_RULES.md §11) ──────────
+
+    public function test_successful_login_is_audited(): void
+    {
+        $this->insertUser();
+        $this->authService->login($this->makeLoginDTO());
+
+        $row = $this->pdo->query("SELECT * FROM audit_logs WHERE event_type = 'LOGIN_SUCCESS' ORDER BY id DESC LIMIT 1")->fetch();
+        $this->assertNotFalse($row);
+        $this->assertSame('user', $row['target_entity']);
+        $this->assertNotNull($row['actor_user_id']);
+        $this->assertNotNull($row['created_at']);
+    }
+
+    public function test_logout_is_audited(): void
+    {
+        $this->insertUser();
+        $login = $this->authService->login($this->makeLoginDTO());
+        $this->authService->logout($login->accessToken, '127.0.0.1');
+
+        $row = $this->pdo->query("SELECT * FROM audit_logs WHERE event_type = 'LOGOUT' ORDER BY id DESC LIMIT 1")->fetch();
+        $this->assertNotFalse($row);
+        $this->assertSame('device_session', $row['target_entity']);
+    }
+
+    public function test_token_refresh_is_audited(): void
+    {
+        $this->insertUser();
+        $login = $this->authService->login($this->makeLoginDTO());
+        $this->authService->refresh($login->refreshToken, '127.0.0.1', 'PHPUnit/Test');
+
+        $row = $this->pdo->query("SELECT * FROM audit_logs WHERE event_type = 'TOKEN_REFRESHED' ORDER BY id DESC LIMIT 1")->fetch();
+        $this->assertNotFalse($row);
+        $this->assertSame('device_session', $row['target_entity']);
+        $this->assertSame('refresh token rotation', $row['reason']);
+    }
+
+    public function test_no_raw_token_is_ever_written_to_audit_or_security_tables(): void
+    {
+        $this->insertUser();
+        $login = $this->authService->login($this->makeLoginDTO());
+        // a failed login (security event) + a refresh (audit) for good measure
+        try {
+            $this->authService->login($this->makeLoginDTO(password: 'wrong'));
+        } catch (UnauthorizedException) {}
+        $refresh = $this->authService->refresh($login->refreshToken, '127.0.0.1', 'PHPUnit/Test');
+
+        $blobs = array_merge(
+            array_column($this->pdo->query('SELECT details FROM security_events')->fetchAll(), 'details'),
+            array_column($this->pdo->query('SELECT old_value FROM audit_logs')->fetchAll(), 'old_value'),
+            array_column($this->pdo->query('SELECT new_value FROM audit_logs')->fetchAll(), 'new_value'),
+        );
+        $haystack = implode("\n", array_filter($blobs));
+
+        foreach ([$login->accessToken, $login->refreshToken, $refresh->accessToken, $refresh->refreshToken, 'Password123!'] as $secret) {
+            $this->assertStringNotContainsString($secret, $haystack);
+        }
+    }
 }

@@ -28,10 +28,11 @@
 | 16 — Mobile Application Foundation | ✅ Complete | `abe191c` |
 | 17 — Mobile QR Attendance | ✅ Complete | `8306ba6` |
 | 18 — Device Session Security | ✅ Complete | `74a4ff2` |
-| 19 — Risk Scoring | ✅ Complete | `feat(security): implement QRIVO risk scoring` |
-| 20–23 | ⛔ Not started | — |
+| 19 — Risk Scoring | ✅ Complete | `0eb36f7` |
+| 20 — Security Events & Audit | ✅ Complete | `feat(security): implement QRIVO audit and security events` |
+| 21–23 | ⛔ Not started | — |
 
-**Test status at Phase 19:** backend **494 tests, 1079 assertions, 100% passing**
+**Test status at Phase 20:** backend **528 tests, 1189 assertions, 100% passing**
 (`backend/`). Mobile: 10 Dart test files under `mobile/test/`; the Flutter SDK is
 not available on the development machine, so `flutter test` runs in CI / on a
 developer workstation (see AD-011).
@@ -71,7 +72,10 @@ log-only unless `enforce_fingerprint_binding`; device thresholds in
 `config/security.php` not `system_settings`; no migration needed), AD-014 (risk
 scoring = additive weighted model; the 10 spec signals only; weights/thresholds
 in `system_settings` → `config/risk.php` → defaults; `LOCATION_MISMATCH` and
-`SUSPICIOUS_IP` data-gated per OQ-003 / OQ-010).
+`SUSPICIOUS_IP` data-gated per OQ-003 / OQ-010), AD-015 (central `LogSanitizer`
+redaction pass on all persisted + file logs; read-only admin trail endpoints
+under `/api/v1/admin/{security-events,audit-logs}` using the pre-defined
+view permissions).
 `ORIGINAL_SPECIFICATION.md` remains unchanged.
 
 ---
@@ -603,11 +607,45 @@ See [`ACCEPTED_DEVIATIONS.md`](ACCEPTED_DEVIATIONS.md) AD-014 and
 
 ---
 
-## Phase 20: Security Events & Audit
+## Phase 20: Security Events & Audit — ✅ COMPLETE
 
-- [ ] Structured security event logging
-- [ ] Audit trails for administrative and attendance changes
-- [ ] Safe logging (no passwords/tokens/keys)
+Consolidates the trail that prior phases built, closes the redaction gap, and
+adds the read side (PROJECT_SPECIFICATION.md §6.15, SECURITY_RULES.md §10 / §11).
+
+- [x] **Structured security event logging** — one enum (`SecurityEventType`),
+      one choke point (`SecurityLogService`). Every §6.15 event is covered:
+      auth (`LOGIN_FAILURE`, `SUSPICIOUS_AUTH`, `TOKEN_REUSE`), QR
+      (`QR_REPLAY/INVALID/EXPIRED`), challenge (`CHALLENGE_INVALID/EXPIRED`),
+      attendance (`DUPLICATE_ATTENDANCE`, `UNAUTHORIZED_ATTENDANCE`), authz
+      (`UNAUTHORIZED_ACCESS`, `IDOR_ATTEMPT`, `PRIVILEGE_ESCALATION`), device
+      (`NEW_DEVICE`, `SUSPICIOUS_DEVICE`), risk (`RISK_ESCALATION`,
+      `BLOCKED_ATTENDANCE`).
+- [x] **Audit trails** for all four required categories:
+      - attendance changes → `ATTENDANCE_STATUS_CHANGED` / `ATTENDANCE_RECORDED`
+        (actor, target, old/new state, reason, timestamp, ip)
+      - administrative actions → `{ENTITY}_CREATED/UPDATED/DELETED`,
+        `USER_ROLE_ATTACHED` (actor, target entity, old/new, timestamp, ip)
+      - security events → `security_events` (type, actor, details, ip, timestamp)
+      - authentication events → `LOGIN_SUCCESS`, `LOGOUT`, **`TOKEN_REFRESHED`**
+        (new this phase)
+- [x] **Safe logging** — `Domain\Security\LogSanitizer` is a single recursive
+      redaction pass applied by **both** `SecurityLogService` (before every
+      `details` / `old_value` / `new_value` is persisted) **and** `Logger`
+      (before every file line). Redacts sensitive keys at any depth
+      (`password`, `*token*`, `*secret*`, `authorization`, `private_key`,
+      `nonce`, `signature`, `fingerprint`, …) and token-shaped **values** (PEM
+      private-key blocks, JWTs, long bare hex / base64). Over-long strings
+      truncated. `AuditQueryService` re-sanitizes on read.
+- [x] **Read side** — `GET /api/v1/admin/security-events` (`security.event.view`)
+      and `GET /api/v1/admin/audit-logs` (`audit.log.view`), paginated + filtered
+      (event_type, severity/actor/entity/target, date range). Read-only; the
+      tables are append-only. Fills the two previously-unused permissions.
+- [x] Tests — `LogSanitizerTest`, `SecurityLogServiceTest` (no-secrets
+      guarantee + fail-safe), `AuditTrailRoutesTest`, `AuditCoverageTest`
+      (all four categories through the router + global no-secrets sweep),
+      `AuthServiceTest` (auth-event audit rows), `LoggerTest` (delegation).
+
+See [`ACCEPTED_DEVIATIONS.md`](ACCEPTED_DEVIATIONS.md) AD-015.
 
 **Commit:** `feat(security): implement QRIVO audit and security events`
 
