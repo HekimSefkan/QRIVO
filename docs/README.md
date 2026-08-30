@@ -10,8 +10,10 @@ This directory contains the authoritative project documentation.
 | [`ARCHITECTURE_RULES.md`](ARCHITECTURE_RULES.md) | Protected architecture decisions |
 | [`ATTENDANCE_ALGORITHM.md`](ATTENDANCE_ALGORITHM.md) | Authoritative attendance algorithm |
 | [`SECURITY_RULES.md`](SECURITY_RULES.md) | Security requirements and constraints |
-| [`DEVELOPMENT_PLAN.md`](DEVELOPMENT_PLAN.md) | Phased implementation plan |
+| [`DEVELOPMENT_PLAN.md`](DEVELOPMENT_PLAN.md) | Phased implementation plan and current status |
 | [`OPEN_QUESTIONS.md`](OPEN_QUESTIONS.md) | Unresolved requirements and design questions |
+| [`ACCEPTED_DEVIATIONS.md`](ACCEPTED_DEVIATIONS.md) | Reviewed, deliberate deviations from the literal source wording |
+| [`ARCHITECTURE_FREEZE.md`](ARCHITECTURE_FREEZE.md) | Frozen component catalogue (responsibilities, I/O, security boundaries) |
 
 ## Source of Truth
 

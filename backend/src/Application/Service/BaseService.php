@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace QRIVO\Application\Service;
 
-use QRIVO\Infrastructure\Logging\Logger;
+use QRIVO\Domain\Contract\LoggerInterface;
 
 /**
  * Base service providing shared infrastructure for all application services.
@@ -19,5 +19,5 @@ use QRIVO\Infrastructure\Logging\Logger;
  */
 abstract class BaseService
 {
-    public function __construct(protected readonly Logger $logger) {}
+    public function __construct(protected readonly LoggerInterface $logger) {}
 }
