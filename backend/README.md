@@ -49,7 +49,7 @@ backend/
 │   ├── Application/
 │   │   ├── DTO/            # Base + Auth DTOs
 │   │   ├── Policy/         # SelfOwnedResourcePolicy, AttendanceAuthorizationPolicy
-│   │   ├── Service/        # Auth*, Authorization*, AttendanceEligibility*, Service/{Academic (11), Schedule (6), Attendance: Session + Qr + Challenge + RiskEvaluation + LiveAttendance}
+│   │   ├── Service/        # Auth*, Authorization*, AttendanceEligibility*, Service/{Academic (11), Schedule (6), Attendance: Session/Qr/Challenge/RiskEvaluation/LiveAttendance/ManualAttendance}
 │   │   └── Validation/     # Validator — input validation rules engine
 │   ├── Infrastructure/
 │   │   ├── Config/         # Config — dot-notation config loader from PHP files + ENV
@@ -199,6 +199,14 @@ transaction (atomic single-use challenge, duplicate check, risk assessment,
 `WAITING → PRESENT`). Challenges are single-use and short-lived; failed attempts
 get a generic message (detail → `security_events`).
 
+**Manual attendance (ATTENDANCE_ALGORITHM.md §6, `attendance.record.update`):**
+`PATCH /api/v1/teacher/attendance/{attendanceId}/student/{studentId}`
+(`attendanceId` = session id, `studentId` = `students.id`, body `{status, reason?}`)
+runs the 8-step sequence (ownership, membership, status + transition validation)
+and updates the record (`source = MANUAL`) + writes a full `audit_logs` entry —
+in one transaction. Students never hold this permission and can never modify
+their own attendance; a teacher can override a QR-submitted status.
+
 **Teacher live attendance (PROJECT_SPECIFICATION.md §6.8, `attendance.live.view`):**
 `GET /api/v1/teacher/attendance/{id}/live` returns the dashboard snapshot
 (session + current QR + live counters `TOTAL/WAITING/PRESENT/ABSENT/LATE/EXCUSED/PENDING_REVIEW`
@@ -310,7 +318,8 @@ This backend is being built incrementally:
 - [x] Phase 11 — Dynamic QR
 - [x] Phase 12 — Challenge-Response Attendance
 - [x] Phase 13 — Teacher Live Attendance
-- [ ] Phase 14 — Manual Attendance
+- [x] Phase 14 — Manual Attendance
+- [ ] Phase 15 — Session Close / Cancel
 - [ ] ...
 
 See [`docs/PROJECT_SPECIFICATION.md`](../docs/PROJECT_SPECIFICATION.md) for the full phase list.
