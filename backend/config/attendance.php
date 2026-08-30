@@ -29,14 +29,6 @@ return [
         'window_seconds'      => (int) ($_ENV['ATTENDANCE_CHALLENGE_WINDOW_SECONDS'] ?? 300),
     ],
 
-    // Risk scoring (step 13) — BASIC in Phase 12; the full engine + `system_settings`
-    // integration is Phase 19. Values are configurable, never hard-coded (spec §6.14).
-    'risk' => [
-        // Soft signal: challenge requests for a (student, session) at/over this
-        // count within the window elevate risk to MEDIUM.
-        'soft_retry_threshold'  => (int) ($_ENV['ATTENDANCE_RISK_SOFT_RETRY'] ?? 6),
-        // High signal threshold -> PENDING_REVIEW.
-        'high_retry_threshold'  => (int) ($_ENV['ATTENDANCE_RISK_HIGH_RETRY'] ?? 9),
-        'retry_window_seconds'  => (int) ($_ENV['ATTENDANCE_RISK_RETRY_WINDOW'] ?? 300),
-    ],
+    // Risk scoring (step 13) lives in `config/risk.php` and `system_settings`
+    // (spec §6.14). See QRIVO\Application\Service\Security\RiskScoringService.
 ];

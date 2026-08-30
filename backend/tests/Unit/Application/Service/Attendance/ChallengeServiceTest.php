@@ -7,7 +7,6 @@ namespace QRIVO\Tests\Unit\Application\Service\Attendance;
 use PHPUnit\Framework\TestCase;
 use QRIVO\Application\Service\Attendance\ChallengeService;
 use QRIVO\Application\Service\Attendance\QrService;
-use QRIVO\Application\Service\Attendance\RiskEvaluationService;
 use QRIVO\Domain\Contract\LoggerInterface;
 use QRIVO\Domain\Enum\SecurityEventType;
 use QRIVO\Domain\Exception\ConflictException;
@@ -67,7 +66,7 @@ final class ChallengeServiceTest extends TestCase
             $this->createMock(LoggerInterface::class),
             $this->db,
             $qr,
-            $risk ?? new RiskEvaluationService($this->createMock(LoggerInterface::class), $challengeRepo, new Config(QRIVO_ROOT)),
+            $risk ?? $this->riskScoringService($this->db),
             new AttendanceSessionRepository($this->db),
             $challengeRepo,
             new AttendanceRecordRepository($this->db),
@@ -394,22 +393,62 @@ final class ChallengeServiceTest extends TestCase
         $this->assertSame('MEDIUM', $this->pdo->query('SELECT risk_level FROM risk_assessments')->fetch()['risk_level']);
     }
 
+    /** Seed a prior security event attributed to a user (for the history look-back). */
+    private function seedSecurityEvent(string $type, int $userId, ?\DateTimeImmutable $at = null): void
+    {
+        $at ??= new \DateTimeImmutable('now');
+        $this->pdo->prepare(
+            'INSERT INTO security_events (event_type, severity, user_id, created_at) VALUES (?,?,?,?)'
+        )->execute([$type, 'HIGH', $userId, $at->format('Y-m-d H:i:s')]);
+    }
+
     public function test_high_risk_records_pending_review(): void
     {
         $at = new \DateTimeImmutable('now');
-        for ($i = 0; $i < 9; $i++) { // high threshold = 9
-            $this->pdo->prepare('INSERT INTO qr_challenges (uuid, attendance_session_id, student_id, nonce, qr_nonce, expires_at, created_at) VALUES (?,?,?,?,?,?,?)')
-                ->execute(["h{$i}-x-x-x-x", $this->session['id'], $this->ids['studentId'], "hn{$i}", "hq{$i}", '2030-01-01 00:00:00', $at->format('Y-m-d H:i:s')]);
-        }
-        // 9 seeded + 1 real = 10 == rate limit; drop one so the request is allowed
-        $this->pdo->exec("DELETE FROM qr_challenges WHERE uuid='h0-x-x-x-x'");
+        // A recent REPLAY_ATTEMPT (QR_REPLAY event, weight 60) is on its own a
+        // HIGH signal → PENDING_REVIEW (§9).
+        $this->seedSecurityEvent('QR_REPLAY', $this->ids['studentUserId'], $at);
         [$cid, $nonce, $qr] = $this->issued($at);
 
         $out = $this->service()->verify($this->student(), ['challenge_id' => $cid, 'nonce' => $nonce, 'qr' => $qr], $at->modify('+5 seconds'));
 
         $this->assertSame('PENDING_REVIEW', $out['status']);
         $this->assertSame('HIGH', $out['risk']['level']);
+        $this->assertSame(1, $this->events(SecurityEventType::RISK_ESCALATION->value));
         $this->assertSame('PENDING_REVIEW', $this->pdo->query("SELECT status FROM attendance_records WHERE student_id={$this->ids['studentId']}")->fetch()['status']);
+        $this->assertStringContainsString('REPLAY_ATTEMPT', (string) $this->pdo->query('SELECT signals FROM risk_assessments')->fetch()['signals']);
+    }
+
+    public function test_recent_expired_qr_alone_stays_low(): void
+    {
+        $at = new \DateTimeImmutable('now');
+        // One honest fumble (expired QR, weight 15) must NOT elevate the outcome.
+        $this->seedSecurityEvent('QR_EXPIRED', $this->ids['studentUserId'], $at);
+        [$cid, $nonce, $qr] = $this->issued($at);
+
+        $out = $this->service()->verify($this->student(), ['challenge_id' => $cid, 'nonce' => $nonce, 'qr' => $qr], $at->modify('+5 seconds'));
+
+        $this->assertSame('PRESENT', $out['status']);
+        $this->assertSame('LOW', $out['risk']['level']);
+        $this->assertSame(0, $this->events(SecurityEventType::RISK_ESCALATION->value));
+    }
+
+    public function test_unauthorized_relationship_history_blocks(): void
+    {
+        $at = new \DateTimeImmutable('now');
+        // A recent UNAUTHORIZED_ATTENDANCE event (weight 100) → BLOCKED.
+        $this->seedSecurityEvent('UNAUTHORIZED_ATTENDANCE', $this->ids['studentUserId'], $at);
+        [$cid, $nonce, $qr] = $this->issued($at);
+
+        try {
+            $this->service()->verify($this->student(), ['challenge_id' => $cid, 'nonce' => $nonce, 'qr' => $qr], $at->modify('+5 seconds'));
+            $this->fail('expected ForbiddenException');
+        } catch (ForbiddenException) {
+        }
+
+        $this->assertSame('BLOCKED', $this->pdo->query('SELECT risk_level FROM risk_assessments')->fetch()['risk_level']);
+        $this->assertSame('WAITING', $this->pdo->query("SELECT status FROM attendance_records WHERE student_id={$this->ids['studentId']}")->fetch()['status']);
+        $this->assertSame(1, $this->events(SecurityEventType::BLOCKED_ATTENDANCE->value));
     }
 
     public function test_risk_blocked_consumes_challenge_but_records_no_attendance(): void
@@ -458,7 +497,7 @@ final class ChallengeServiceTest extends TestCase
         return ['session_id' => $dsId, 'device_fingerprint' => $requestFingerprint] + $this->student();
     }
 
-    public function test_device_fingerprint_mismatch_forces_pending_review(): void
+    public function test_device_fingerprint_mismatch_elevates_risk(): void
     {
         $at = new \DateTimeImmutable('now');
         [$cid, $nonce, $qr] = $this->issued($at);
@@ -466,13 +505,36 @@ final class ChallengeServiceTest extends TestCase
 
         $out = $this->service()->verify($actor, ['challenge_id' => $cid, 'nonce' => $nonce, 'qr' => $qr], $at->modify('+5 seconds'));
 
-        $this->assertSame('PENDING_REVIEW', $out['status']);
-        $this->assertSame('HIGH', $out['risk']['level']);
-        $signals = $this->pdo->query('SELECT signals FROM risk_assessments')->fetch()['signals'];
-        $this->assertStringContainsString('DEVICE_MISMATCH', (string) $signals);
+        // DEVICE_MISMATCH maps to the canonical MULTIPLE_DEVICE_ACTIVITY signal
+        // (weight 40) → MEDIUM → PRESENT + SECURITY_EVENT (§9).
+        $this->assertSame('PRESENT', $out['status']);
+        $this->assertSame('MEDIUM', $out['risk']['level']);
+        $this->assertSame(1, $this->events(SecurityEventType::RISK_ESCALATION->value));
+        $signals = (string) $this->pdo->query('SELECT signals FROM risk_assessments')->fetch()['signals'];
+        $this->assertStringContainsString('MULTIPLE_DEVICE_ACTIVITY', $signals);
     }
 
-    public function test_multiple_active_devices_elevates_to_medium(): void
+    public function test_device_mismatch_plus_retry_pressure_reaches_high(): void
+    {
+        $at = new \DateTimeImmutable('now');
+        // 6 challenge rows → EXCESSIVE_RETRY (30) + MULTIPLE_DEVICE_ACTIVITY (40) = 70 → HIGH.
+        for ($i = 0; $i < 6; $i++) {
+            $this->pdo->prepare('INSERT INTO qr_challenges (uuid, attendance_session_id, student_id, nonce, qr_nonce, expires_at, created_at) VALUES (?,?,?,?,?,?,?)')
+                ->execute(["r{$i}-x-x-x-x", $this->session['id'], $this->ids['studentId'], "rn{$i}", "rq{$i}", '2030-01-01 00:00:00', $at->format('Y-m-d H:i:s')]);
+        }
+        [$cid, $nonce, $qr] = $this->issued($at);
+        $actor = $this->actorOnDevice('bound-device-fp', 'different-device-fp');
+
+        $out = $this->service()->verify($actor, ['challenge_id' => $cid, 'nonce' => $nonce, 'qr' => $qr], $at->modify('+5 seconds'));
+
+        $this->assertSame('PENDING_REVIEW', $out['status']);
+        $this->assertSame('HIGH', $out['risk']['level']);
+        $signals = (string) $this->pdo->query('SELECT signals FROM risk_assessments')->fetch()['signals'];
+        $this->assertStringContainsString('EXCESSIVE_RETRY', $signals);
+        $this->assertStringContainsString('MULTIPLE_DEVICE_ACTIVITY', $signals);
+    }
+
+    public function test_multiple_active_devices_elevates_risk(): void
     {
         $at = new \DateTimeImmutable('now');
         [$cid, $nonce, $qr] = $this->issued($at);
@@ -492,7 +554,7 @@ final class ChallengeServiceTest extends TestCase
         $this->assertSame('PRESENT', $out['status']);
         $this->assertSame('MEDIUM', $out['risk']['level']);
         $this->assertSame(1, $this->events(SecurityEventType::RISK_ESCALATION->value));
-        $this->assertStringContainsString('MULTIPLE_ACTIVE_DEVICES', (string) $this->pdo->query('SELECT signals FROM risk_assessments')->fetch()['signals']);
+        $this->assertStringContainsString('MULTIPLE_DEVICE_ACTIVITY', (string) $this->pdo->query('SELECT signals FROM risk_assessments')->fetch()['signals']);
     }
 
     public function test_matching_device_stays_low_risk(): void

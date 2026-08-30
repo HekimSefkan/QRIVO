@@ -42,14 +42,16 @@ backend/
 │   │   ├── Authorization/  # RolePermissionMap — canonical role → permission map
 │   │   ├── Contract/       # Interfaces: RepositoryInterface, PolicyInterface, ServiceInterface, LoggerInterface
 │   │   ├── Attendance/     # AttendanceEligibility, QrPayload, QrValidationResult, RiskAssessment
+│   │   ├── Risk/           # RiskPolicy — resolved weights + thresholds for the scoring engine
+│   │   ├── Security/       # DeviceContext
 │   │   ├── Contract/       # …, RiskEvaluatorInterface
 │   │   ├── Entity/         # User, DeviceSession, Entity/Academic/* (11), Entity/Schedule/* (6), Entity/Attendance/* (3)
-│   │   ├── Enum/           # UserRole, Permission, AttendanceStatus/Source, SessionStatus, DayOfWeek, QrValidationReason, ChallengeFailureReason, RiskLevel/Outcome, SecurityEventType
+│   │   ├── Enum/           # UserRole, Permission, AttendanceStatus/Source, SessionStatus, DayOfWeek, QrValidationReason, ChallengeFailureReason, RiskLevel/Outcome/Signal, SecurityEventType
 │   │   └── Exception/      # Domain exceptions: Unauthorized, Forbidden, NotFound, Conflict, Validation, ...
 │   ├── Application/
 │   │   ├── DTO/            # Base + Auth DTOs
 │   │   ├── Policy/         # SelfOwnedResourcePolicy, AttendanceAuthorizationPolicy
-│   │   ├── Service/        # Auth*, Authorization*, AttendanceEligibility*, Service/{Academic (11), Schedule (6), Attendance: Session/Qr/Challenge/RiskEvaluation/LiveAttendance/ManualAttendance}
+│   │   ├── Service/        # Auth*, Authorization*, AttendanceEligibility*, Service/{Academic (11), Schedule (6), Attendance: Session/Qr/Challenge/LiveAttendance/ManualAttendance, Security: DeviceSession/RiskScoring}
 │   │   └── Validation/     # Validator — input validation rules engine
 │   ├── Infrastructure/
 │   │   ├── Config/         # Config — dot-notation config loader from PHP files + ENV
@@ -337,6 +339,38 @@ into risk scoring (step 13). Fingerprints are signals only — never an
 authorization input. Thresholds live in `config/security.php` (not hard-coded);
 `.env` keys `SECURITY_*`.
 
+### Risk scoring (PROJECT_SPECIFICATION.md §6.14 / ATTENDANCE_ALGORITHM.md §9)
+
+`RiskScoringService` is the **single** implementation of `RiskEvaluatorInterface`
+— every attendance attempt is scored there and nowhere else (step 13 of the
+challenge-response pipeline). The signal catalogue is fixed in
+`Domain\Enum\RiskSignal` — exactly the ten spec signals, no more:
+
+| category | signals |
+|---|---|
+| QR / challenge | `EXPIRED_QR`, `REPLAY_ATTEMPT`, `INVALID_CHALLENGE` |
+| attendance | `EXCESSIVE_RETRY`, `DUPLICATE_ATTENDANCE`, `UNAUTHORIZED_RELATIONSHIP` |
+| device | `NEW_DEVICE`, `MULTIPLE_DEVICE_ACTIVITY` |
+| environment | `SUSPICIOUS_IP`, `LOCATION_MISMATCH` |
+
+Detection: device signals arrive from `DeviceSessionService`; `EXCESSIVE_RETRY`
+from the challenge count in the window; the QR / challenge / duplicate /
+unauthorized signals from the caller's recent `security_events` (look-back
+window); `SUSPICIOUS_IP` from a configured deny-list (empty by default — OQ-010);
+`LOCATION_MISMATCH` only when a location signal is supplied (OQ-003).
+
+Scoring: `score = Σ weight(signal)`, capped at 100 → level by the MEDIUM / HIGH /
+BLOCKED thresholds → outcome by the fixed §9 table
+(`RiskLevel::toOutcome()`: LOW/MEDIUM → PRESENT, HIGH → PENDING_REVIEW,
+BLOCKED → no record). MEDIUM and HIGH also record a `RISK_ESCALATION` event;
+BLOCKED records `BLOCKED_ATTENDANCE`. Every result is persisted to
+`risk_assessments` (level, score, signals, outcome).
+
+Every weight, threshold and window is configuration, never hard-coded (spec
+§6.14). Resolution order: **`system_settings` row → `config/risk.php` (`.env`
+`RISK_*`) → `RiskSignal::defaultWeight()`**. Migration `008` seeds the
+`system_settings` rows.
+
 ---
 
 ## Development Phases
@@ -357,6 +391,7 @@ This backend is being built incrementally:
 - [x] Phase 16 — Mobile Application Foundation *(backend: student self-service)*
 - [x] Phase 17 — Mobile QR Attendance *(mobile-only; no backend change)*
 - [x] Phase 18 — Device Session Security
+- [x] Phase 19 — Risk Scoring
 - [ ] ...
 
 See [`docs/PROJECT_SPECIFICATION.md`](../docs/PROJECT_SPECIFICATION.md) for the full phase list.

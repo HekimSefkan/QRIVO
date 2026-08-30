@@ -59,7 +59,21 @@ The choice is determined by `system_settings`. However, `PENDING_REVIEW` also ap
 
 **Impact:** Mobile app permissions, database schema, risk scoring service
 
-**Status:** ⏳ Awaiting user clarification
+**Interim resolution (Phase 19, 2026-08-30):** `LOCATION_MISMATCH` is a
+first-class member of the fixed risk-signal catalogue
+(`QRIVO\Domain\Enum\RiskSignal`) with a configurable weight
+(`risk.weight.location_mismatch`, default 40). It is **data-gated**: the risk
+engine only counts it when a caller explicitly passes
+`location_mismatch: true` in the evaluation context. No component supplies that
+today (no GPS collection, no room coordinates), so the signal is inert. When a
+location pipeline is specified, only the detection side is added — the scoring
+model already accommodates it. Recorded in `ACCEPTED_DEVIATIONS.md` AD-014.
+
+**Still open:** whether to collect device GPS, whether to store room/building
+coordinates, the mismatch radius/definition, and the privacy model.
+
+**Status:** 🟡 Interim resolution in place — signal wired but inert; location
+data-collection policy still awaiting user clarification
 
 ---
 
@@ -203,4 +217,16 @@ is available if a cap is later required. Recorded in `docs/ACCEPTED_DEVIATIONS.m
 
 **Impact:** Risk scoring configuration
 
-**Status:** ⏳ Awaiting user clarification
+**Interim resolution (Phase 19, 2026-08-30):** `SUSPICIOUS_IP` fires **only** for
+IPs explicitly listed in `risk.ip.suspicious_list` (`system_settings` /
+`config/risk.php` / `RISK_SUSPICIOUS_IPS`). The list is **empty by default**, so
+shared campus WiFi never produces a false positive. No "IP differs from a
+previous IP" heuristic is applied. An institution that wants IP-based risk adds
+specific addresses (e.g. known VPN exit nodes) to the list; its weight
+(`risk.weight.suspicious_ip`, default 15) keeps a single hit below the MEDIUM
+threshold. Recorded in `ACCEPTED_DEVIATIONS.md` AD-014.
+
+**Still open:** whether campus-network topology should feed a smarter IP model
+(per-subnet trust, geo-velocity) in a later phase.
+
+**Status:** 🟡 Interim resolution in place — deny-list only, inert by default
