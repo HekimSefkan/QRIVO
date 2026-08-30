@@ -39,12 +39,15 @@ backend/
 │   ├── Bootstrap/
 │   │   └── App.php         # Application bootstrap (env, config, logger, DB, router)
 │   ├── Domain/
-│   │   ├── Contract/       # Interfaces: RepositoryInterface, PolicyInterface, ServiceInterface
-│   │   ├── Enum/           # Domain enums: UserRole, AttendanceStatus, SessionStatus, SecurityEventType
+│   │   ├── Authorization/  # RolePermissionMap — canonical role → permission map
+│   │   ├── Contract/       # Interfaces: RepositoryInterface, PolicyInterface, ServiceInterface, LoggerInterface
+│   │   ├── Entity/         # User, DeviceSession
+│   │   ├── Enum/           # UserRole, Permission, AttendanceStatus, SessionStatus, SecurityEventType
 │   │   └── Exception/      # Domain exceptions: Unauthorized, Forbidden, NotFound, Conflict, Validation, ...
 │   ├── Application/
-│   │   ├── DTO/            # Base Data Transfer Object
-│   │   ├── Service/        # BaseService — business logic layer
+│   │   ├── DTO/            # Base + Auth DTOs
+│   │   ├── Policy/         # SelfOwnedResourcePolicy, AttendanceAuthorizationPolicy
+│   │   ├── Service/        # AuthService, AuthorizationService, LoginAttemptService, SecurityLogService, ...
 │   │   └── Validation/     # Validator — input validation rules engine
 │   ├── Infrastructure/
 │   │   ├── Config/         # Config — dot-notation config loader from PHP files + ENV
@@ -53,8 +56,8 @@ backend/
 │   │   └── Repository/     # BaseRepository — shared PDO CRUD helpers
 │   └── Presentation/
 │       └── Http/
-│           ├── Controller/        # HealthController (and future controllers)
-│           ├── Middleware/        # CorsMiddleware, JsonBodyMiddleware, MiddlewarePipeline
+│           ├── Controller/        # HealthController, Auth/AuthController
+│           ├── Middleware/        # Cors, JsonBody, Auth, Authorization, MiddlewarePipeline
 │           ├── Response/          # JsonResponse — standard API envelope
 │           ├── BaseController.php
 │           ├── ExceptionHandler.php
@@ -62,6 +65,7 @@ backend/
 │           └── Router.php
 ├── config/
 │   ├── app.php             # Application config
+│   ├── auth.php            # Token TTLs + login rate-limit thresholds
 │   ├── database.php        # Database config
 │   └── logging.php         # Logging config
 ├── routes/
@@ -142,17 +146,22 @@ All endpoints are versioned under `/api/v1/`.
 
 ### Currently Implemented
 
-| Method | Endpoint           | Description      |
-|--------|--------------------|------------------|
-| `GET`  | `/api/v1/health`   | System health check |
+| Method | Endpoint              | Auth          | Description         |
+|--------|-----------------------|---------------|---------------------|
+| `GET`  | `/api/v1/health`      | none          | System health check |
+| `POST` | `/api/v1/auth/login`  | none          | User login (Argon2id, rate limited) |
+| `POST` | `/api/v1/auth/logout` | Bearer        | Logout / token invalidation |
+| `POST` | `/api/v1/auth/refresh`| refresh token | Rotate tokens (reuse detection) |
+| `GET`  | `/api/v1/auth/me`     | Bearer        | Authenticated caller's identity + roles |
+
+Authorization is enforced server-side via `AuthorizationService` (role,
+permission, ownership, relationship) and `AuthorizationMiddleware`. Permissions
+are seeded by `database/migrations/002_seed_rbac_permissions.sql`.
 
 ### Planned (Future Phases)
 
 | Method   | Endpoint                                                             | Description                |
 |----------|----------------------------------------------------------------------|----------------------------|
-| `POST`   | `/api/v1/auth/login`                                                 | User login                 |
-| `POST`   | `/api/v1/auth/logout`                                                | Logout / token invalidation |
-| `POST`   | `/api/v1/auth/refresh`                                               | Refresh token              |
 | `POST`   | `/api/v1/teacher/attendance/start`                                   | Start attendance session   |
 | `POST`   | `/api/v1/teacher/attendance/{id}/close`                              | Close attendance session   |
 | `PATCH`  | `/api/v1/teacher/attendance/{attendanceId}/student/{studentId}`      | Manual attendance update   |
@@ -234,9 +243,9 @@ Services **must not** access the database directly — use repositories.
 
 This backend is being built incrementally:
 
-- [x] Phase 5 — Backend Foundation (this phase)
-- [ ] Phase 6 — Authentication
-- [ ] Phase 7 — RBAC + Authorization
+- [x] Phase 5 — Backend Foundation
+- [x] Phase 6 — Authentication
+- [x] Phase 7 — RBAC + Authorization
 - [ ] Phase 8 — Admin & Academic Structure
 - [ ] Phase 9 — Course/Teacher/Student Assignments
 - [ ] Phase 10 — Course Schedule
