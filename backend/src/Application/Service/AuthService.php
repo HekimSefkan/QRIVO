@@ -6,11 +6,13 @@ namespace QRIVO\Application\Service;
 
 use QRIVO\Application\DTO\Auth\LoginRequestDTO;
 use QRIVO\Application\DTO\Auth\TokenResponseDTO;
+use QRIVO\Application\Service\Security\DeviceSessionService;
 use QRIVO\Domain\Entity\User;
 use QRIVO\Domain\Contract\LoggerInterface;
 use QRIVO\Domain\Enum\SecurityEventType;
 use QRIVO\Domain\Exception\TooManyRequestsException;
 use QRIVO\Domain\Exception\UnauthorizedException;
+use QRIVO\Domain\Security\DeviceContext;
 use QRIVO\Infrastructure\Config\Config;
 use QRIVO\Infrastructure\Repository\DeviceSessionRepository;
 use QRIVO\Infrastructure\Repository\UserRepository;
@@ -38,6 +40,7 @@ final class AuthService extends BaseService
 {
     private readonly int $accessTokenTtl;
     private readonly int $refreshTokenTtl;
+    private ?DeviceSessionService $deviceSessions = null;
 
     public function __construct(
         LoggerInterface                     $logger,
@@ -45,11 +48,25 @@ final class AuthService extends BaseService
         private readonly DeviceSessionRepository $sessionRepo,
         private readonly LoginAttemptService     $loginAttemptService,
         private readonly SecurityLogService      $securityLogService,
-        Config                              $config,
+        private readonly Config             $config,
     ) {
         parent::__construct($logger);
         $this->accessTokenTtl  = $config->getInt('auth.access_token_ttl', 3600);
         $this->refreshTokenTtl = $config->getInt('auth.refresh_token_ttl', 2592000);
+    }
+
+    /**
+     * Device/session security (PROJECT_SPECIFICATION.md §6.13). Lazily built
+     * from this service's own dependencies so construction sites are unchanged.
+     */
+    private function deviceSessions(): DeviceSessionService
+    {
+        return $this->deviceSessions ??= new DeviceSessionService(
+            $this->logger,
+            $this->sessionRepo,
+            $this->securityLogService,
+            $this->config,
+        );
     }
 
     // ─── Login ─────────────────────────────────────────────────────────────────
@@ -154,11 +171,18 @@ final class AuthService extends BaseService
         $expiresAt    = date('Y-m-d H:i:s', time() + $this->accessTokenTtl);
         $refreshExpiresAt = date('Y-m-d H:i:s', time() + $this->refreshTokenTtl);
 
-        // 7. Store session with hashed tokens (NEVER store plaintext)
+        // 7. Store session with hashed tokens (NEVER store plaintext).
+        //    Device registration (§6.13): derive + persist the fingerprint and
+        //    device name, and emit NEW_DEVICE / SUSPICIOUS_DEVICE events.
+        $device        = DeviceContext::fromRequest($dto->ipAddress, $dto->userAgent, $dto->deviceId, $dto->deviceName);
+        $deviceColumns = $this->deviceSessions()->registerSession((int) $userRow['id'], $device, 'login');
+
         $sessionUuid = $this->generateUuid();
         $this->sessionRepo->create([
             'uuid'                => $sessionUuid,
             'user_id'             => (int) $userRow['id'],
+            'device_fingerprint'  => $deviceColumns['device_fingerprint'],
+            'device_name'         => $deviceColumns['device_name'],
             'ip_address'          => $dto->ipAddress,
             'user_agent'          => $dto->userAgent,
             'access_token_hash'   => $this->hashToken($accessToken),
@@ -238,8 +262,13 @@ final class AuthService extends BaseService
      *
      * @throws UnauthorizedException
      */
-    public function refresh(string $rawRefreshToken, string $ipAddress, string $userAgent): TokenResponseDTO
-    {
+    public function refresh(
+        string $rawRefreshToken,
+        string $ipAddress,
+        string $userAgent,
+        ?string $deviceId = null,
+        ?string $deviceName = null,
+    ): TokenResponseDTO {
         $hash    = $this->hashToken($rawRefreshToken);
         $session = $this->sessionRepo->findByRefreshTokenHash($hash);
 
@@ -281,9 +310,14 @@ final class AuthService extends BaseService
         $refreshExpiresAt = date('Y-m-d H:i:s', time() + $this->refreshTokenTtl);
         $sessionUuid      = $this->generateUuid();
 
+        $device        = DeviceContext::fromRequest($ipAddress, $userAgent, $deviceId, $deviceName);
+        $deviceColumns = $this->deviceSessions()->registerSession((int) $userRow['id'], $device, 'refresh');
+
         $this->sessionRepo->create([
             'uuid'               => $sessionUuid,
             'user_id'            => (int) $userRow['id'],
+            'device_fingerprint' => $deviceColumns['device_fingerprint'],
+            'device_name'        => $deviceColumns['device_name'],
             'ip_address'         => $ipAddress,
             'user_agent'         => $userAgent,
             'access_token_hash'  => $this->hashToken($accessToken),
@@ -314,10 +348,14 @@ final class AuthService extends BaseService
      * Used by AuthMiddleware to authenticate protected routes.
      * Updates last_active_at on success.
      *
-     * @return array{user_id: int, uuid: string, email: string, roles: string[], session_id: int}
+     * When a {@see DeviceContext} is supplied, device/session rules are enforced
+     * (idle timeout, fingerprint binding) and a fingerprint is returned so
+     * downstream services (attendance risk scoring) can reuse it.
+     *
+     * @return array{user_id: int, uuid: string, email: string, roles: string[], session_id: int, device_fingerprint: ?string}
      * @throws UnauthorizedException
      */
-    public function validateToken(string $rawAccessToken): array
+    public function validateToken(string $rawAccessToken, ?DeviceContext $device = null): array
     {
         $hash    = $this->hashToken($rawAccessToken);
         $session = $this->sessionRepo->findByAccessTokenHash($hash);
@@ -331,19 +369,25 @@ final class AuthService extends BaseService
             throw new UnauthorizedException('Account is inactive or no longer approved.');
         }
 
-        // Update activity timestamp
-        $this->sessionRepo->updateLastActive((int) $session['id']);
+        // Device & session security (§6.13): idle timeout + fingerprint binding.
+        // This also records activity (last_active_at / ip).
+        if ($device !== null) {
+            $this->deviceSessions()->assertSessionUsable($session, $device);
+        } else {
+            $this->sessionRepo->updateLastActive((int) $session['id']);
+        }
 
         $roles = $this->userRepo->getRoleNames((int) $userRow['id']);
 
         return [
-            'user_id'    => (int) $userRow['id'],
-            'uuid'       => $userRow['uuid'],
-            'email'      => $userRow['email'],
-            'first_name' => $userRow['first_name'],
-            'last_name'  => $userRow['last_name'],
-            'roles'      => $roles,
-            'session_id' => (int) $session['id'],
+            'user_id'            => (int) $userRow['id'],
+            'uuid'               => $userRow['uuid'],
+            'email'              => $userRow['email'],
+            'first_name'         => $userRow['first_name'],
+            'last_name'          => $userRow['last_name'],
+            'roles'              => $roles,
+            'session_id'         => (int) $session['id'],
+            'device_fingerprint' => $device?->fingerprint,
         ];
     }
 

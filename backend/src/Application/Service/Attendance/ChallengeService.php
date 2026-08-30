@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace QRIVO\Application\Service\Attendance;
 
 use QRIVO\Application\Service\BaseService;
+use QRIVO\Application\Service\Security\DeviceSessionService;
 use QRIVO\Application\Service\SecurityLogService;
 use QRIVO\Application\Validation\Validator;
 use QRIVO\Domain\Attendance\RiskAssessment;
@@ -64,6 +65,7 @@ final class ChallengeService extends BaseService
         private readonly RiskAssessmentRepository $riskAssessments,
         private readonly RelationshipRepository $relationships,
         private readonly SecurityLogService $securityLog,
+        private readonly DeviceSessionService $deviceSessions,
         Config $config,
     ) {
         parent::__construct($logger);
@@ -213,13 +215,18 @@ final class ChallengeService extends BaseService
         // Steps 8-9: membership re-check.
         $this->assertMembership($actor, $userId, $session);
 
-        // Step 12: device / session rules — the caller holds a valid, non-revoked
-        // device session (enforced by AuthMiddleware / AuthService::validateToken).
-        // The full device-fingerprint rules are Phase 18.
+        // Step 12: device / session rules (§6.13). The caller already holds a
+        // valid, non-revoked device session whose idle-timeout and fingerprint
+        // binding were enforced by AuthService::validateToken. Here we gather the
+        // device risk signals for this attempt and feed them to step 13.
+        $deviceSignals = $this->deviceSessions->attendanceRiskSignals(
+            isset($actor['session_id']) && is_numeric($actor['session_id']) ? (int) $actor['session_id'] : 0,
+            isset($actor['device_fingerprint']) && is_string($actor['device_fingerprint']) ? $actor['device_fingerprint'] : null,
+        );
 
         // ─── Steps 7 (atomic) · 10 · 13 · attendance — one transaction ────────
         /** @var array{type: string, status?: string, risk: RiskAssessment} $result */
-        $result = $this->db->transaction(function () use ($challenge, $session, $studentId, $at): array {
+        $result = $this->db->transaction(function () use ($challenge, $session, $studentId, $at, $deviceSignals): array {
             $locked = $this->challenges->findByUuid($challenge->uuid, lock: true);
             if ($locked === null || $locked['used_at'] !== null) {
                 return ['type' => 'concurrent_use', 'risk' => RiskAssessment::low()];
@@ -237,7 +244,8 @@ final class ChallengeService extends BaseService
             }
 
             // Step 13: risk evaluation — always runs, result always persisted.
-            $risk = $this->risk->evaluate($studentId, (int) $session['id'], $at);
+            // Device/session signals (step 12) are folded in here.
+            $risk = $this->risk->evaluate($studentId, (int) $session['id'], $at, ['device_signals' => $deviceSignals]);
             $this->riskAssessments->create(array_merge($risk->toRow(), [
                 'qr_challenge_id'       => (int) $locked['id'],
                 'student_id'            => $studentId,

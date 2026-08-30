@@ -26,15 +26,14 @@
 | 14 — Manual Attendance | ✅ Complete | `abe191c` |
 | 15 — Session Close/Cancel | ⏭️ Deferred — skipped for now, still pending | — |
 | 16 — Mobile Application Foundation | ✅ Complete | `abe191c` |
-| 17 — Mobile QR Attendance | ✅ Complete | `feat(mobile): implement QRIVO QR attendance flow` |
-| 18–23 | ⛔ Not started | — |
+| 17 — Mobile QR Attendance | ✅ Complete | `8306ba6` |
+| 18 — Device Session Security | ✅ Complete | `feat(security): implement QRIVO device session security` |
+| 19–23 | ⛔ Not started | — |
 
-**Test status at Phase 17:** backend 415 tests, 924 assertions, 100% passing
-(`backend/`) — Phase 17 is mobile-only and adds no backend code (the student
-attendance endpoints were built and tested in Phases 11–12). Mobile: 10 Dart
-test files under `mobile/test/`; the Flutter SDK is not available on the
-development machine, so `flutter test` runs in CI / on a developer workstation
-(see AD-011). The camera integration is smoke-tested on a device.
+**Test status at Phase 18:** backend **451 tests, 989 assertions, 100% passing**
+(`backend/`). Mobile: 10 Dart test files under `mobile/test/`; the Flutter SDK is
+not available on the development machine, so `flutter test` runs in CI / on a
+developer workstation (see AD-011).
 
 ### Migration strategy note (deviation AD-001)
 
@@ -63,7 +62,10 @@ basic Phase-12 risk evaluator; challenge TTL config), AD-010 (live attendance =
 AJAX polling; WebSocket deferred — no WS server in the frozen stack), AD-011
 (mobile project hand-scaffolded; generated platform folders gitignored; Flutter
 tests authored but run in CI), AD-012 (`mobile_scanner` for camera/QR decode;
-local `qrivo.` prefix sniff is a UX filter, not a security check).
+local `qrivo.` prefix sniff is a UX filter, not a security check), AD-013 (device
+fingerprint = server-derived `sha256(X-Device-Id | UA)`; fingerprint binding is
+log-only unless `enforce_fingerprint_binding`; device thresholds in
+`config/security.php` not `system_settings`; no migration needed).
 `ORIGINAL_SPECIFICATION.md` remains unchanged.
 
 ---
@@ -507,11 +509,48 @@ tested in Phases 11–12; this phase is the client that drives them.
 
 ---
 
-## Phase 18: Device Session Security
+## Phase 18: Device Session Security — ✅ COMPLETE
 
-- [ ] Device registration, session tracking
-- [ ] Suspicious device detection
-- [ ] Integration with risk scoring
+Implements only the mechanisms the frozen `device_sessions` schema supports
+(PROJECT_SPECIFICATION.md §6.13). **No migration** — every column already exists
+(migration `001`).
+
+- [x] Device registration / session identification —
+      `Domain\Security\DeviceContext` derives `sha256(X-Device-Id | User-Agent)`
+      server-side; `AuthService` persists `device_fingerprint` + `device_name`
+      on login and refresh (`X-Device-Id` / `X-Device-Name` request headers)
+- [x] Session expiration — existing absolute `expires_at` plus an optional
+      server-side **idle timeout** over `last_active_at`
+      (`security.device.idle_timeout_seconds`)
+- [x] Logout — existing `revoked_at` (unchanged)
+- [x] Suspicious device detection — `Application\Service\Security\DeviceSessionService`:
+      `NEW_DEVICE` (LOW) when a user authenticates from an unseen fingerprint;
+      `SUSPICIOUS_DEVICE` (HIGH) on a fingerprint mismatch against the session;
+      `SUSPICIOUS_DEVICE` (LOW) on an IP change (flagged once)
+- [x] Multiple device rules — `SUSPICIOUS_DEVICE` (MEDIUM) when a user exceeds
+      `security.device.max_active_sessions` concurrently active sessions
+- [x] Fingerprint binding — enforced (401) only when
+      `security.device.enforce_fingerprint_binding` is on; otherwise log + risk
+      only (AD-013)
+- [x] **Authentication** integration — `AuthService::login/refresh/validateToken`;
+      `BaseController::authenticate` builds the `DeviceContext` from the request
+- [x] **Attendance** integration — `ChallengeService` step 12 gathers device
+      signals (`DEVICE_MISMATCH`, `MULTIPLE_ACTIVE_DEVICES`, `NEW_DEVICE`) for the
+      in-flight attempt
+- [x] **Security events** integration — all detections via `SecurityLogService`
+      using the existing `NEW_DEVICE` / `SUSPICIOUS_DEVICE` cases
+- [x] **Risk scoring** integration — `RiskEvaluatorInterface::evaluate` gains a
+      `$context` arg; `RiskEvaluationService` folds `device_signals` into the
+      level/outcome (`DEVICE_MISMATCH` → HIGH/PENDING_REVIEW; others → MEDIUM),
+      persisted to `risk_assessments.signals`
+- [x] Security tests — `DeviceSessionServiceTest` (19), `AuthServiceDeviceSessionTest`
+      (11), `DeviceSessionRoutesTest` (6, full HTTP stack), plus device-risk
+      cases in `ChallengeServiceTest`
+
+Config: `config/security.php` (`SECURITY_MAX_ACTIVE_SESSIONS`,
+`SECURITY_ENFORCE_DEVICE_BINDING`, `SECURITY_SESSION_IDLE_TIMEOUT`). Thresholds
+are configuration, never hard-coded (spec §6.14); a `system_settings` move is
+Phase 19. See [`ACCEPTED_DEVIATIONS.md`](ACCEPTED_DEVIATIONS.md) AD-013.
 
 **Commit:** `feat(security): implement QRIVO device session security`
 

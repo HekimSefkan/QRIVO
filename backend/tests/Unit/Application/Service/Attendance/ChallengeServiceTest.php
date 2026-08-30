@@ -74,6 +74,12 @@ final class ChallengeServiceTest extends TestCase
             new RiskAssessmentRepository($this->db),
             new RelationshipRepository($this->db),
             $log,
+            new \QRIVO\Application\Service\Security\DeviceSessionService(
+                $this->createMock(LoggerInterface::class),
+                new \QRIVO\Infrastructure\Repository\DeviceSessionRepository($this->db),
+                $log,
+                new Config(QRIVO_ROOT),
+            ),
             new Config(QRIVO_ROOT),
         );
     }
@@ -412,7 +418,8 @@ final class ChallengeServiceTest extends TestCase
         [$cid, $nonce, $qr] = $this->issued($at);
 
         $blockingEvaluator = new class implements \QRIVO\Domain\Contract\RiskEvaluatorInterface {
-            public function evaluate(int $studentId, int $sessionId, \DateTimeImmutable $at): \QRIVO\Domain\Attendance\RiskAssessment
+            /** @param array<string, mixed> $context */
+            public function evaluate(int $studentId, int $sessionId, \DateTimeImmutable $at, array $context = []): \QRIVO\Domain\Attendance\RiskAssessment
             {
                 return new \QRIVO\Domain\Attendance\RiskAssessment(
                     \QRIVO\Domain\Enum\RiskLevel::BLOCKED,
@@ -434,6 +441,70 @@ final class ChallengeServiceTest extends TestCase
         $this->assertNotNull($this->pdo->query("SELECT used_at FROM qr_challenges WHERE uuid='{$cid}'")->fetch()['used_at']);
         $this->assertSame('BLOCKED', $this->pdo->query('SELECT risk_level FROM risk_assessments')->fetch()['risk_level']);
         $this->assertSame('WAITING', $this->pdo->query("SELECT status FROM attendance_records WHERE student_id={$this->ids['studentId']}")->fetch()['status']);
+    }
+
+    // ─── device / session risk signals (Phase 18) ──────────────────────────
+
+    /** Attach a device session row and return an actor bound to it. */
+    private function actorOnDevice(string $sessionFingerprint, ?string $requestFingerprint): array
+    {
+        $now = '2026-01-01 00:00:00';
+        $this->pdo->prepare(
+            'INSERT INTO device_sessions (uuid, user_id, device_fingerprint, expires_at, created_at, updated_at)
+             VALUES (?,?,?,?,?,?)'
+        )->execute([bin2hex(random_bytes(6)), $this->ids['studentUserId'], $sessionFingerprint, '2099-01-01 00:00:00', $now, $now]);
+        $dsId = (int) $this->pdo->lastInsertId();
+
+        return ['session_id' => $dsId, 'device_fingerprint' => $requestFingerprint] + $this->student();
+    }
+
+    public function test_device_fingerprint_mismatch_forces_pending_review(): void
+    {
+        $at = new \DateTimeImmutable('now');
+        [$cid, $nonce, $qr] = $this->issued($at);
+        $actor = $this->actorOnDevice('bound-device-fp', 'different-device-fp');
+
+        $out = $this->service()->verify($actor, ['challenge_id' => $cid, 'nonce' => $nonce, 'qr' => $qr], $at->modify('+5 seconds'));
+
+        $this->assertSame('PENDING_REVIEW', $out['status']);
+        $this->assertSame('HIGH', $out['risk']['level']);
+        $signals = $this->pdo->query('SELECT signals FROM risk_assessments')->fetch()['signals'];
+        $this->assertStringContainsString('DEVICE_MISMATCH', (string) $signals);
+    }
+
+    public function test_multiple_active_devices_elevates_to_medium(): void
+    {
+        $at = new \DateTimeImmutable('now');
+        [$cid, $nonce, $qr] = $this->issued($at);
+        $actor = $this->actorOnDevice('bound-fp', 'bound-fp');
+
+        // Push the student well over the default ceiling (5) of active sessions.
+        $now = '2026-01-01 00:00:00';
+        for ($i = 0; $i < 6; $i++) {
+            $this->pdo->prepare(
+                'INSERT INTO device_sessions (uuid, user_id, device_fingerprint, expires_at, created_at, updated_at)
+                 VALUES (?,?,?,?,?,?)'
+            )->execute([bin2hex(random_bytes(6)), $this->ids['studentUserId'], "extra-{$i}", '2099-01-01 00:00:00', $now, $now]);
+        }
+
+        $out = $this->service()->verify($actor, ['challenge_id' => $cid, 'nonce' => $nonce, 'qr' => $qr], $at->modify('+5 seconds'));
+
+        $this->assertSame('PRESENT', $out['status']);
+        $this->assertSame('MEDIUM', $out['risk']['level']);
+        $this->assertSame(1, $this->events(SecurityEventType::RISK_ESCALATION->value));
+        $this->assertStringContainsString('MULTIPLE_ACTIVE_DEVICES', (string) $this->pdo->query('SELECT signals FROM risk_assessments')->fetch()['signals']);
+    }
+
+    public function test_matching_device_stays_low_risk(): void
+    {
+        $at = new \DateTimeImmutable('now');
+        [$cid, $nonce, $qr] = $this->issued($at);
+        $actor = $this->actorOnDevice('same-fp', 'same-fp');
+
+        $out = $this->service()->verify($actor, ['challenge_id' => $cid, 'nonce' => $nonce, 'qr' => $qr], $at->modify('+5 seconds'));
+
+        $this->assertSame('PRESENT', $out['status']);
+        $this->assertSame('LOW', $out['risk']['level']);
     }
 
     public function test_no_technical_detail_leaks_in_failure_message(): void
