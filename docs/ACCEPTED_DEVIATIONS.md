@@ -445,6 +445,49 @@ reversible: committing the platform folders later is a no-op for the app code.
 
 ---
 
+## AD-012: Mobile QR scanner uses `mobile_scanner`; local prefix sniff is UX-only (Phase 17)
+
+**Source wording:** `ATTENDANCE_ALGORITHM.md §4` ("Scans QR code → QR data parsed
+→ Mobile app requests challenge from backend → Mobile app submits challenge
+response + verification request") and `PROJECT_SPECIFICATION.md §6.11`
+("QR scanner", "QR → Challenge → Verification → Result flow"). `SECURITY_RULES.md`:
+"The backend is the single source of truth … the mobile client performs no
+security validation."
+
+**What was done (Phase 17):**
+
+1. Camera capture / barcode decoding uses the **`mobile_scanner`** Flutter
+   package (`^5.2.3`) — the stack docs freeze the *backend* technology, not the
+   mobile app's UI packages. It is confined to `qr_scanner_screen.dart`; the flow
+   logic (`QrAttendanceController`) has no camera dependency.
+2. The client sends the **raw decoded QR string** to the backend unchanged. It
+   does **not** parse `session_id / timestamp / nonce / signature` for any
+   decision. The "QR data parsed" step in the algorithm is satisfied server-side
+   by `QrPayload::decode()` inside `POST /student/attendance/qr/verify`,
+   `/challenge` and `/verify`.
+3. One local check exists: `rawQr.startsWith('qrivo.')`. This is a **UX filter**
+   so scanning an unrelated barcode (a URL, a product code) shows "not a QRIVO
+   code" instead of firing three API calls. Anything that passes the sniff is
+   still fully validated server-side (shape, HMAC-SHA256 signature, expiry,
+   session state, enrolment, replay, rate limit, risk, duplicates). The sniff can
+   only *reject* early — it can never cause an invalid code to be accepted.
+4. Failure presentation: the backend returns deliberately generic messages
+   (§4 "Failed attempts must NOT expose technical security details"). The client
+   shows those verbatim and additionally classifies each into a `QrFailureKind`
+   **only** to choose an icon and whether a "Try again" button is shown. No
+   security state is inferred from the classification.
+
+**Why this is acceptable:** no architecture, attendance-algorithm, security, or
+database decision changes. The server remains the sole authority for every
+attendance verdict; the app is a thin transport + presentation layer over the
+Phase 11–12 endpoints.
+
+**Enforced in:** `mobile/lib/features/attendance/` (`qr_attendance_controller.dart`,
+`qr_scanner_screen.dart`, `attendance_failure.dart`, `attendance_result_sheet.dart`),
+`mobile/lib/core/api/student_api.dart`, `mobile/pubspec.yaml`.
+
+---
+
 ## Change protocol
 
 New deviations may be added here **only** after review. A deviation that touches
