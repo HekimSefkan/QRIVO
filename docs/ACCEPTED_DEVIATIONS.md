@@ -236,6 +236,53 @@ M:N tables with only composite-uniqueness constraints (C-014..C-016).
 
 ---
 
+## AD-007: Attendance session `end_time`, `expires_at`, and duplicate-session scope (Phase 10)
+
+**Source wording:** `ATTENDANCE_ALGORITHM.md` §2 lists the session fields
+including `end_time | Session end` and `expires_at | Session expiration`. It does
+not state whether `end_time` is populated at creation, nor the value of
+`expires_at`, nor the exact scope of "prevent duplicates" (step 10).
+
+**What was done (Phase 10):**
+
+1. **`end_time` is NULL at creation.** `database/docs/CONSTRAINTS.md` §4 is
+   explicit — `attendance_sessions.end_time` is "NULL until session is
+   closed/cancelled" — and `TABLES.md` says "Set on close/cancel". The
+   close/cancel flow (Phase 15) will set it. The algorithm's field list names the
+   column; the frozen nullability rule governs its value at creation.
+
+2. **`expires_at` = the scheduled meeting end.** It is set to the date of the
+   start time combined with the covering `course_schedules.end_time` (e.g. a
+   Monday 09:00–11:00 slot started at 09:40 → `expires_at` = that Monday
+   11:00:00). This is the natural "the session is valid until class ends"
+   semantics and needs no new configuration.
+
+3. **Duplicate-active-session scope = one ACTIVE session per
+   `(class_id, course_id, academic_term_id)`.** Step 10 ("prevent duplicates")
+   plus `INDEXES.md` (`(status, class_id)` — "Prevent duplicate active session
+   for a class") make per-class/course/term the operative unit. Enforced inside
+   the creation transaction after a `SELECT … FOR UPDATE` on the `classes` row
+   (CONSTRAINTS.md §6). Whether a *single teacher* may hold multiple concurrent
+   ACTIVE sessions for different classes is **OQ-009** and is left open — the
+   repository exposes `activeSessionCountForTeacher()` for when that is decided.
+
+**Why this is acceptable:**
+
+- (1) follows the frozen schema exactly; the close flow depends on `end_time`
+  being NULL beforehand.
+- (2) and (3) instantiate under-specified details using the scheduling data the
+  spec already requires, change no schema, and use standard 409 semantics.
+- None of this touches the attendance algorithm's steps, ordering, transaction
+  requirement, or security model.
+
+**Enforced in:**
+`backend/src/Application/Service/Attendance/AttendanceSessionService.php`,
+`backend/src/Infrastructure/Repository/Attendance/AttendanceSessionRepository.php`,
+`database/migrations/005_create_attendance_sessions.sql`. OQ-009 tracked in
+`docs/OPEN_QUESTIONS.md`.
+
+---
+
 ## Change protocol
 
 New deviations may be added here **only** after review. A deviation that touches

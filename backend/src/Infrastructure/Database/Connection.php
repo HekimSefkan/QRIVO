@@ -71,6 +71,15 @@ final class Connection
     }
 
     /**
+     * The active PDO driver name (e.g. 'mysql', 'sqlite'). Used to guard
+     * driver-specific SQL such as `SELECT ... FOR UPDATE`.
+     */
+    public function driverName(): string
+    {
+        return (string) $this->getPdo()->getAttribute(PDO::ATTR_DRIVER_NAME);
+    }
+
+    /**
      * Check if connection is alive (for health checks).
      */
     public function isConnected(): bool

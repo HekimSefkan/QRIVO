@@ -175,7 +175,13 @@ Options include:
 
 **Impact:** Active session validation logic
 
-**Status:** ⏳ Awaiting user clarification
+**Interim resolution (Phase 10, 2026-08-30):** Step 10 is enforced as **one
+ACTIVE session per `(class_id, course_id, academic_term_id)`** (transaction +
+`classes` row lock). No per-teacher cap is applied — a teacher may hold
+concurrent ACTIVE sessions for different classes. `AttendanceSessionRepository::activeSessionCountForTeacher()`
+is available if a cap is later required. Recorded in `docs/ACCEPTED_DEVIATIONS.md` AD-007.
+
+**Status:** 🟡 Interim resolution in place — per-teacher concurrency policy still awaiting user clarification
 
 ---
 
