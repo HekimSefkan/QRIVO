@@ -122,11 +122,44 @@ LOG_LEVEL=debug
 CORS_ALLOWED_ORIGINS=*
 ```
 
-### 4. Serve the Application
+### 4. Create the schema and demo data
+
+```bash
+php scripts/migrate.php     # creates the database + applies database/migrations/*.sql
+php scripts/seed.php        # demo institution, courses, schedules and 16 accounts
+```
+
+`migrate.php` records applied files in `schema_migrations`, so re-running is a
+no-op. `seed.php` is idempotent and **refuses to run unless `APP_ENV=local`**;
+it needs `SEED_DEFAULT_PASSWORD` in `.env` and hashes every password at runtime
+with Argon2id. See [`docs/RUNBOOK.md`](../docs/RUNBOOK.md) for the full guide,
+including the Docker path.
+
+### 5. Serve the Application
 
 ```bash
 php -S localhost:8000 -t public/
 ```
+
+### 6. Verify end to end
+
+```bash
+php scripts/smoke_test.php   # in a second terminal, against the running server
+```
+
+Walks login → start attendance → QR → challenge → verify → live list → manual
+override → close, asserting the security controls (replay 409, student override
+403, post-close rejection) at each step.
+
+---
+
+## Developer Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/migrate.php` | Apply migrations. `--status` lists applied/pending; `--fresh` drops and rebuilds (local only). |
+| `scripts/seed.php` | Idempotent demo dataset + accounts. Local only; Argon2id hashes generated at runtime. |
+| `scripts/smoke_test.php` | End-to-end HTTP verification against a running server. `--base-url=` to retarget. |
 
 ---
 

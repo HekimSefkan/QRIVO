@@ -1,0 +1,67 @@
+# QRIVO — local development runtime.
+#
+#   cp .env.docker.example .env      # compose reads ./.env for interpolation
+#   docker compose up -d
+#   docker compose exec api php scripts/migrate.php
+#   docker compose exec api php scripts/seed.php
+#   docker compose exec api php scripts/smoke_test.php
+#
+# This file is for LOCAL DEVELOPMENT ONLY. It runs PHP's built-in server and a
+# single-node MySQL; neither is a production deployment (see OQ-007).
+
+services:
+  db:
+    image: mysql:8.4
+    container_name: qrivo-db
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in ./.env (copy .env.docker.example)}
+      MYSQL_DATABASE: ${DB_DATABASE:-qrivo}
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    volumes:
+      - qrivo-db-data:/var/lib/mysql
+    healthcheck:
+      # `api` waits for this to pass before it starts.
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${DB_PASSWORD}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    container_name: qrivo-api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      APP_DEBUG: ${APP_DEBUG:-true}
+      APP_URL: ${APP_URL:-http://localhost:8000}
+      DB_DRIVER: mysql
+      DB_HOST: db                     # the compose service name, not localhost
+      DB_PORT: 3306                   # in-network port, independent of the host mapping
+      DB_DATABASE: ${DB_DATABASE:-qrivo}
+      DB_USERNAME: ${DB_USERNAME:-root}
+      DB_PASSWORD: ${DB_PASSWORD}
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-*}
+      SEED_DEFAULT_PASSWORD: ${SEED_DEFAULT_PASSWORD}
+    ports:
+      # 0.0.0.0 so an Android emulator (10.0.2.2) or a phone on the LAN can reach it.
+      - "${APP_PORT:-8000}:8000"
+    volumes:
+      - ./backend:/app
+      - ./database:/database:ro       # migrate.php / seed.php read ../database
+      - qrivo-vendor:/app/vendor
+
+volumes:
+  qrivo-db-data:
+  qrivo-vendor:
