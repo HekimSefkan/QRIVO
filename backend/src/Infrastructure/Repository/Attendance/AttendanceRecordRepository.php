@@ -136,8 +136,15 @@ final class AttendanceRecordRepository extends BaseRepository
             $bindings['status'] = $status;
         }
         if ($search !== null && $search !== '') {
-            $sql .= ' AND (s.`student_number` LIKE :q OR u.`first_name` LIKE :q OR u.`last_name` LIKE :q)';
-            $bindings['q'] = '%' . $search . '%';
+            // Each occurrence needs its OWN placeholder: with real prepared
+            // statements (PDO::ATTR_EMULATE_PREPARES = false) MySQL rejects a
+            // reused named parameter with SQLSTATE[HY093]. SQLite tolerates
+            // reuse, which is why the test harness never caught this.
+            $sql .= ' AND (s.`student_number` LIKE :q1 OR u.`first_name` LIKE :q2 OR u.`last_name` LIKE :q3)';
+            $like = '%' . $search . '%';
+            $bindings['q1'] = $like;
+            $bindings['q2'] = $like;
+            $bindings['q3'] = $like;
         }
         if ($updatedSince !== null && $updatedSince !== '') {
             $sql .= ' AND ar.`updated_at` >= :since';

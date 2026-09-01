@@ -760,6 +760,85 @@ through the existing admin API by hand.
 
 ---
 
+## AD-018: Web client technology (OQ-006 resolved) + teacher self-service endpoints (Phase 25)
+
+**Source wording:** `docs/ARCHITECTURE_RULES.md` §1.1 locks
+`Web Client | Web-based dashboard` but names **no** framework.
+`docs/ARCHITECTURE_FREEZE.md` §2.15 defines the Web Client as
+"Teacher and admin-facing dashboard … Dependencies: Backend REST API …
+Frontend visibility is never a security boundary." `ORIGINAL_SPECIFICATION.md`
+§12 specifies the dashboard content (*Bugünkü dersler, Aktif yoklama, Son
+yoklamalar, Toplam katılım*) and the live-attendance two-panel layout; §13
+specifies 2–5 s polling and the live counters. `docs/FINAL_AUDIT.md` F-5 records
+that the client was never built. `OQ-006` asks which frontend technology to use.
+
+### 1. OQ-006 resolved — static HTML5 + Bootstrap 5 + vanilla JS
+
+Chosen by the user for Phase 25: plain HTML5 + CSS + vanilla JavaScript +
+Bootstrap 5, served as **static files** from `web/`, calling the REST API with
+`fetch` and a Bearer token. No build step, no SPA framework, no server-side
+rendering.
+
+**Accuracy note:** `ORIGINAL_SPECIFICATION.md` does **not** contain a frontend
+technology list — it is silent on the subject, which is exactly why OQ-006 was
+raised. The spec's only technology list (§5) is for the backend. This choice is
+therefore a *decision that fills the gap*, not one recovered from the spec.
+Nothing in the frozen architecture forbids it: §2.15 requires only that the
+client consume the REST API and never act as a security boundary, which a static
+client satisfies by construction.
+
+**Directory name:** the spec's illustrative trees use `frontend/`; the user
+directed `web/`. `ARCHITECTURE_RULES` §1.3 lists neither (it also omits
+`mobile/`), so no locked decision is affected. `web/` is used.
+
+**Third-party runtime dependencies:** none. Bootstrap 5.3.3 and
+`qrcode-generator` 1.4.4 (MIT, Kazuhiko Arase) are **vendored into
+`web/vendor/`** and served locally. The QR payload is rendered to SVG in the
+browser and is never sent to any external service.
+
+### 2. Teacher self-service endpoints — genuinely missing, added
+
+Building the specified dashboard was **impossible** with the existing API. Every
+teacher endpoint requires an identifier the teacher has no way to obtain:
+
+| Needed for the dashboard | Existing endpoint | Why it cannot be used |
+|---|---|---|
+| Today's lessons | `GET /admin/course-schedules` | requires `assignment.schedule.manage` — ADMIN only, a teacher gets 403 |
+| Today's lessons | `GET /student/schedule` | `StudentSelfService` rejects a non-student (403) |
+| "Start attendance" gate | `GET /teacher/attendance/eligibility` | requires `class_id` **and** `course_id` up front — undiscoverable |
+| Active / recent sessions | `GET /teacher/attendance/{id}` | requires a session id — undiscoverable |
+| Reports | `GET /teacher/reports/course/{id}` | requires a course id — undiscoverable |
+
+Decisive evidence that these routes were intended but never built: the TEACHER
+role in `RolePermissionMap` already holds **`profile.self.view`** and
+**`schedule.self.view`**, and **no teacher route consumes either permission**.
+The equivalent student routes were added in Phase 16; the teacher pair was
+missed.
+
+**What was added** (read-only, mirroring `Student\SelfController` exactly):
+
+- `GET /api/v1/teacher/dashboard` — `profile.self.view`
+- `GET /api/v1/teacher/schedule` — `schedule.self.view`
+
+plus `Application\Service\Teacher\TeacherSelfService` and
+`Infrastructure\Repository\TeacherSelfRepository`.
+
+**What was NOT changed:** no new permission, no RBAC map change, no migration, no
+schema change, no algorithm change, no modification to any existing endpoint or
+security control. The `teachers.id` is resolved server-side from the bearer token
+via `RelationshipRepository::findTeacherIdForUser()` and can never be supplied by
+the client; a caller without a teacher profile receives 403. Every row returned
+is scoped to that teacher's own `teacher_class_assignments` — the same
+relationship basis the attendance and reporting authorization already uses.
+
+**Enforced in:** `web/` (static client),
+`backend/src/Presentation/Http/Controller/Teacher/SelfController.php`,
+`backend/src/Application/Service/Teacher/TeacherSelfService.php`,
+`backend/src/Infrastructure/Repository/TeacherSelfRepository.php`,
+`backend/routes/api.php`, `docs/WEB_CLIENT.md`.
+
+---
+
 ## Change protocol
 
 New deviations may be added here **only** after review. A deviation that touches

@@ -155,7 +155,27 @@ Options include:
 
 **Impact:** Frontend architecture, project structure, build pipeline
 
-**Status:** ⏳ Awaiting user clarification
+**Status:** ✅ **Resolved by the user, 2026-09-01 (Phase 25)** — option 3:
+static **HTML5 + CSS + vanilla JS + Bootstrap 5**, served from `web/`, calling
+the REST API with `fetch` and a Bearer token. **No build step, no SPA
+framework.** Bootstrap and the QR library are vendored into `web/vendor/`, so
+there is no npm/bundler pipeline and no third-party runtime dependency.
+
+Recorded as **AD-018**; the client is documented in `docs/WEB_CLIENT.md`.
+
+*Accuracy note:* the decision was framed as "matching the technology list in the
+original specification", but `ORIGINAL_SPECIFICATION.md` in fact names **no**
+frontend technology — its only technology list (§5) is the backend one. That
+absence is why this question existed. The resolution is therefore a decision
+filling the gap, not one recovered from the specification. Nothing in
+`ARCHITECTURE_FREEZE.md` §2.15 forbids it.
+
+Two structural notes:
+- The specification calls the directory `frontend/`; the user asked for `web/`
+  and `web/` was used. `ARCHITECTURE_RULES.md` §1.3 names neither, so no locked
+  rule is broken (see AD-018).
+- Only the **teacher** screens are built. The ADMIN web panel remains future
+  work — `FINAL_AUDIT` F-5 is narrowed, not closed.
 
 ---
 

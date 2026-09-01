@@ -40,6 +40,7 @@ use QRIVO\Presentation\Http\Controller\Teacher\AttendanceController;
 use QRIVO\Presentation\Http\Controller\Teacher\AttendanceEligibilityController;
 use QRIVO\Presentation\Http\Controller\Teacher\LiveAttendanceController;
 use QRIVO\Presentation\Http\Controller\Teacher\ReportController as TeacherReportController;
+use QRIVO\Presentation\Http\Controller\Teacher\SelfController as TeacherSelfController;
 
 // ─── Health ──────────────────────────────────────────────────────────────────
 $r->addRoute('GET', '/api/v1/health', [HealthController::class, 'check']);
@@ -95,6 +96,13 @@ $r->addRoute('GET', '/api/v1/admin/student-courses/{id:\d+}',  [StudentCourseCon
 // no write endpoint — records are created by SecurityLogService.
 $r->addRoute('GET', '/api/v1/admin/security-events', [SecurityEventController::class, 'index']);
 $r->addRoute('GET', '/api/v1/admin/audit-logs',      [AuditLogController::class, 'index']);
+
+// ─── Teacher self-service (Phase 25 — web panel) ─────────────────────────
+// Mirrors the Phase 16 student self-service. Uses the `profile.self.view` /
+// `schedule.self.view` permissions the TEACHER role already holds; the teacher
+// id comes from the token, never the request. Read-only. See AD-018.
+$r->addRoute('GET', '/api/v1/teacher/dashboard', [TeacherSelfController::class, 'dashboard']);
+$r->addRoute('GET', '/api/v1/teacher/schedule',  [TeacherSelfController::class, 'schedule']);
 
 // ─── Attendance eligibility (Phase 9 — teacher) ──────────────────────────
 // "May this teacher open attendance for course/class at this time?" — the

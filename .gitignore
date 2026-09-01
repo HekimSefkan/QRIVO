@@ -117,6 +117,11 @@ pnpm-debug.log*
 *.map
 *.bundle.js
 
+# The web client has no build step, so its vendored third-party files are
+# source, not generated output — they must be committed or a fresh clone has a
+# broken client. See docs/WEB_CLIENT.md §1.
+!web/vendor/**
+
 # ------------------------------------
 # Mobile (React Native / Expo)
 # ------------------------------------

@@ -119,7 +119,7 @@ allows "an equivalent Clean Architecture layout"). `scripts/` is unused.
 local development; **production must set explicit origins**. Tied to `OQ-007`
 (deployment architecture).
 
-### F-5 — Web client not implemented
+### F-5 — Web client not implemented — 🟡 **teacher panel built in Phase 25; ADMIN panel still outstanding**
 
 `ARCHITECTURE_RULES` §1.1 and `ARCHITECTURE_FREEZE` §2.15 lock a "Web-based
 dashboard" for teachers/admins. The executed phases (5–23) built the **backend +
@@ -129,6 +129,27 @@ the client itself is future work. `OQ-006` (web client technology) is open.
 
 - **Impact:** feature-scope, not an architectural violation — no locked backend
   decision changed.
+
+> **Update — 2026-09-01 (Phase 25, web client).** The **teacher** panel is now
+> implemented: login, dashboard, live attendance and reports, as static
+> HTML/CSS/JS + Bootstrap 5 in `web/` (OQ-006 resolved, AD-018 — see
+> `docs/WEB_CLIENT.md`). It consumes the REST API only and makes no
+> authorization decision. The **ADMIN** web panel is still not built, so this
+> finding is **narrowed, not closed**.
+>
+> Two read-only teacher endpoints were added (`GET /teacher/dashboard`,
+> `GET /teacher/schedule`) using **pre-existing** TEACHER permissions that had no
+> route — no new permission, RBAC change, migration or schema change (AD-018).
+>
+> Building the client against a live MySQL also exposed two **pre-existing**
+> defects invisible to the SQLite test harness — reused named placeholders,
+> which MySQL rejects with `SQLSTATE[HY093]` under
+> `PDO::ATTR_EMULATE_PREPARES = false`:
+> `AttendanceRecordRepository::liveRoster()` (`:q` ×3 → HTTP 500 on roster
+> search) and `RelationshipRepository::teacherSharesClassWithStudent()`
+> (`:tid` ×2 → a legitimate teacher wrongly denied a term-filtered student
+> report; fail-closed, but wrong). Both fixed; regression guard
+> `SqlPlaceholderReuseTest` added. Suite is now **587 tests, 1544 assertions**.
 
 ### F-7 — `qr_used_nonces` is never written; global QR-nonce replay relies on the per-student guard
 

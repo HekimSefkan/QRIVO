@@ -1,0 +1,164 @@
+/* QRIVO web client — teacher panel.
+   Layered on top of vendored Bootstrap 5.3.3. No build step. */
+
+:root {
+  --qrivo-primary: #1d4ed8;
+  --qrivo-surface: #f6f8fb;
+}
+
+body {
+  background: var(--qrivo-surface);
+  min-height: 100vh;
+}
+
+.navbar-brand-mark {
+  font-weight: 700;
+  letter-spacing: .12em;
+}
+
+/* ─── login ───────────────────────────────────────────────────────────────── */
+
+.login-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 420px;
+}
+
+/* ─── live attendance ─────────────────────────────────────────────────────── */
+
+/* Desktop: QR panel left, student list right (spec §12).
+   The stack order on small screens is QR -> summary -> list, which is the DOM
+   order, so no reordering rules are needed. */
+@media (min-width: 992px) {
+  .live-left {
+    position: sticky;
+    top: 1rem;
+    align-self: start;
+  }
+}
+
+#qrCanvas {
+  display: grid;
+  place-items: center;
+  min-height: 240px;
+  background: #fff;
+  border-radius: .5rem;
+  padding: .75rem;
+}
+
+#qrCanvas svg {
+  width: 100%;
+  height: auto;
+  max-width: 320px;
+  display: block;
+  /* Keep modules crisp when the SVG is scaled. */
+  shape-rendering: crispEdges;
+}
+
+.qr-inactive {
+  color: #6c757d;
+  text-align: center;
+  padding: 2rem 1rem;
+}
+
+/* Counter tiles — TOPLAM / VAR / YOK / GEÇ / MAZERETLİ / BEKLİYOR.
+   Three columns at every width: the tiles live in the narrow left panel, and
+   six across is not wide enough for "MAZERETLİ" without breaking mid-word. */
+.counter-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .5rem;
+}
+
+.counter-tile {
+  border-radius: .5rem;
+  padding: .6rem .35rem;
+  text-align: center;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, .08);
+}
+
+.counter-tile .counter-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.counter-tile .counter-label {
+  font-size: .65rem;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+  color: #495057;
+  /* Never split a label mid-word — "MAZERETLİ" must stay intact. */
+  word-break: keep-all;
+  overflow-wrap: normal;
+  hyphens: none;
+  white-space: nowrap;
+}
+
+.counter-tile.is-total   { border-left: 4px solid #0d6efd; }
+.counter-tile.is-present { border-left: 4px solid #198754; }
+.counter-tile.is-absent  { border-left: 4px solid #dc3545; }
+.counter-tile.is-late    { border-left: 4px solid #ffc107; }
+.counter-tile.is-excused { border-left: 4px solid #0dcaf0; }
+.counter-tile.is-waiting { border-left: 4px solid #6c757d; }
+
+/* Roster table */
+#studentTable td { vertical-align: middle; }
+
+.student-name { font-weight: 600; }
+
+.student-number {
+  font-variant-numeric: tabular-nums;
+  color: #6c757d;
+  font-size: .875rem;
+}
+
+/* Briefly highlight a row whose status just changed. */
+@keyframes qrivo-flash {
+  from { background-color: #d1e7dd; }
+  to   { background-color: transparent; }
+}
+
+.row-changed { animation: qrivo-flash 1.6s ease-out; }
+
+.remaining-time {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.poll-dot {
+  display: inline-block;
+  width: .5rem;
+  height: .5rem;
+  border-radius: 50%;
+  background: #198754;
+  margin-right: .35rem;
+  vertical-align: middle;
+}
+
+.poll-dot.is-stale { background: #dc3545; }
+
+/* Toasts */
+#toastHost {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 1090;
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  max-width: min(92vw, 30rem);
+}
+
+/* Respect users who prefer reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  .row-changed { animation: none; }
+}
