@@ -6,11 +6,19 @@
 **Commit under audit:** `b2decf0` (`test: complete QRIVO integration validation`)
 **Backend test result:** ✅ **586 tests, 1505 assertions, 100% passing**
 
-**Verdict:** **No architectural violations.** All 16 differences from the literal
+**Verdict:** **No architectural violations.** All 17 differences from the literal
 source wording are documented and reviewed in `docs/ACCEPTED_DEVIATIONS.md`.
-`ORIGINAL_SPECIFICATION.md` is unchanged. Six informational findings (F-1…F-6)
+`ORIGINAL_SPECIFICATION.md` is unchanged. Seven informational findings (F-1…F-7)
 are recorded below; none is a security gap or a blocker. **Release-ready for the
 implemented scope (backend + mobile student app).**
+
+> **Update — 2026-09-01 (Phase 24, local runtime & seed data).**
+> **F-2 is resolved for local development:** `backend/scripts/seed.php` now
+> provisions the first SUPER_ADMIN plus a full demo dataset, so the system can be
+> run and logged into (AD-017). Production account provisioning remains open
+> (OQ-004). **F-7 was discovered during that work and added below.** The
+> verification in this document was re-run against a live MySQL 8.4 instance;
+> all 586 automated tests plus a 16-step HTTP smoke test pass.
 
 ---
 
@@ -78,7 +86,7 @@ integration and per-phase suites).
 - **Recommendation:** wire the two classes into the pipeline **or** delete them so
   the codebase has one obvious auth path. Non-urgent.
 
-### F-2 — No user-account provisioning path (OQ-004 open)
+### F-2 — No user-account provisioning path (OQ-004) — ✅ resolved for local dev in Phase 24
 
 There is no endpoint or service that creates a `users` row and hashes its
 password. Consequently the **Argon2id hashing-on-write** path exists only in the
@@ -88,8 +96,13 @@ link an *existing* `users` account.
 - **Impact:** the system cannot be bootstrapped through the API alone — the first
   `SUPER_ADMIN` and all user accounts must be seeded out of band (SQL / a future
   admin flow / invite e-mail).
-- **Status:** tracked as `OQ-004` (interim resolution: profile endpoints link
-  existing accounts; provisioning flow awaiting user decision).
+- **Resolved for local development (Phase 24, AD-017):** `backend/scripts/seed.php`
+  provisions a SUPER_ADMIN, an ADMIN, 2 teachers and 12 students with Argon2id
+  hashes generated at runtime, so the Argon2id hashing-on-write path is now
+  exercised outside the test harness. The seeder refuses to run unless
+  `APP_ENV=local`. See `docs/RUNBOOK.md`.
+- **Still open:** production/shared-environment provisioning — an admin user-CRUD
+  endpoint, invite e-mail or password-reset flow. Tracked as `OQ-004`.
 
 ### F-3 — Root `tests/` and `scripts/` directories absent
 
@@ -116,6 +129,44 @@ the client itself is future work. `OQ-006` (web client technology) is open.
 
 - **Impact:** feature-scope, not an architectural violation — no locked backend
   decision changed.
+
+### F-7 — `qr_used_nonces` is never written; global QR-nonce replay relies on the per-student guard
+
+*(Added 2026-09-01 during Phase 24. Code was NOT changed — this is a finding, and
+altering the replay mechanism is an algorithm change requiring approval per
+`AGENTS.md` §2/§3.)*
+
+`QrService::validateAndConsume()` is the only writer of `qr_used_nonces`, and it
+has **no callers**. Its own docblock says *"This is what the challenge request
+(Phase 12) calls"*, but `ChallengeService::requestChallenge()` in fact calls the
+non-consuming `QrService::validate()`. The consequence:
+
+- `qr_used_nonces` stays empty in a running system (verified against a live
+  MySQL instance after a full smoke-test run);
+- the `REPLAYED` branch inside `validate()` — which reads `nonceExists()` — can
+  therefore never fire.
+
+**This is not an exploitable replay hole.** QR replay is still blocked, by three
+other controls that are exercised and passing:
+
+| Control | Mechanism | Test |
+|---|---|---|
+| Per-student QR-nonce reuse | `qr_challenges.qr_nonce` + `studentHasChallengeForQrNonce()` (DD-004) | `SecurityFailurePathsTest::test_qr_nonce_replay_is_rejected` → 409 |
+| Challenge single-use | `qr_challenges.used_at`, set atomically in the transaction (DD-003) | smoke test step 10 → 409 |
+| Duplicate attendance | `UNIQUE(attendance_session_id, student_id)` (C-001) | `test_duplicate_attendance_is_rejected` → 409 |
+
+What is *missing* is the cross-student case: two different students presenting
+the same QR string. That is the normal, intended classroom behaviour (one code on
+the projector, many scanners), so the current design is defensible — but it means
+`qr_used_nonces` and the ARCHITECTURE_FREEZE §2.8 "nonce store" wording describe
+a control that is inert.
+
+**Recommendation (needs approval — do not implement silently):** either wire
+`requestChallenge()` to `validateAndConsume()` and accept one-scan-per-QR for the
+whole class, or drop `qr_used_nonces` and amend §2.8 + AD-008 to state that
+per-student nonce tracking is the implemented mechanism. Until a decision is
+made, the docblock on `validateAndConsume()` is misleading and should be treated
+as inaccurate.
 
 ### F-6 — Notifications module not implemented
 
@@ -148,6 +199,7 @@ security control changed, and (where relevant) links an open question. Summary:
 | AD-014 | Risk = additive weighted model; 10 spec signals only; `LOCATION_MISMATCH`/`SUSPICIOUS_IP` data-gated | No — resolves OQ-003/010 interim |
 | AD-015 | Central `LogSanitizer`; read-only admin trail endpoints on pre-defined permissions | No — strengthening |
 | AD-016 | Reporting: `present_rate` = present/marked; student endpoint alongside Phase-16 list; no per-admin partition | No |
+| AD-017 | `schema_migrations` ledger table + migration runner, local demo seeder, docker-compose dev runtime | No |
 
 **No deviation modifies `ORIGINAL_SPECIFICATION.md`, the attendance algorithm,
 the security model, the database schema shape, or the authentication /

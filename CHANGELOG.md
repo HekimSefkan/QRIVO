@@ -9,6 +9,81 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 
 ## [Unreleased]
 
+### Added (Local Runtime & Seed Data — Phase 24)
+
+The backend and mobile code were complete but had never been executed by a human:
+no migration runner, no seed data, no account to log in with (FINAL_AUDIT F-2 /
+OQ-004). This phase makes the project runnable. **No schema shape, algorithm or
+security control was changed.**
+
+**Migration runner — `backend/scripts/migrate.php`**
+
+- Reads DB settings from `backend/.env` through the existing `Config` class.
+- Creates the database if absent (`utf8mb4` / `utf8mb4_unicode_ci`).
+- Applies `database/migrations/*.sql` in filename order, one transaction per file.
+- Records each file in the new `schema_migrations` ledger (filename, SHA-256,
+  statement count, duration) so **re-running is a no-op**; `--status` reports
+  applied/pending, `--fresh` rebuilds (refuses unless `APP_ENV=local`).
+- New `Infrastructure\Database\SqlScriptSplitter` — a quote-aware statement
+  splitter. Required because the shipped migrations contain semicolons *inside
+  string literals* (`COMMENT='Core identity record; password_hash is …'`), which
+  a naive `explode(';')` corrupts. **No migration file was edited.**
+- New migration `000_create_schema_migrations.sql` (infrastructure table, no FKs,
+  no personal data — deliberately outside the 31 domain tables, like
+  `qr_used_nonces`).
+
+**Demo seeder — `backend/scripts/seed.php` + `database/seeders/demo_dataset.php`**
+
+- 1 school → faculty → department → program, 1 academic year, 1 **ACTIVE** term,
+  2 rooms, 3 courses, 1 class of 12 students, with `class_courses`,
+  `teacher_courses`, `teacher_class_assignments`, `student_class_assignments`,
+  the derived `student_courses` (DD-005) and `course_schedules` fully wired.
+- One schedule is **re-centred on the current time on every run**, so a teacher
+  can press *start attendance* immediately after seeding.
+- 16 accounts: 1 SUPER_ADMIN, 1 ADMIN, 2 TEACHER, 12 STUDENT — all
+  `is_active = 1`, `is_approved = 1`, printed as a table at the end.
+- **Security:** every `password_hash` is computed at runtime with
+  `PASSWORD_ARGON2ID`; no hash and no plaintext password exists in the
+  repository. The demo password comes from `SEED_DEFAULT_PASSWORD` in the
+  gitignored `backend/.env`, and the script **refuses to run unless
+  `APP_ENV=local`**.
+- Fully idempotent — a second run reports `rows inserted: 0`.
+
+**Smoke test — `backend/scripts/smoke_test.php`**
+
+16 steps over real HTTP against a running server: health → admin login →
+discover the live schedule → teacher login → start attendance → dynamic QR →
+student login → QR preflight → challenge → challenge response (**asserts
+PRESENT/QR**) → replay rejected (409) → teacher live list → manual override
+(LATE/MANUAL + audit id) → student override rejected (403) → close (every
+WAITING → ABSENT) → post-close submission rejected → audit/security trail present
+with no password or raw token in it. Fails loudly with the HTTP status and body.
+
+**Local runtime**
+
+- `docker-compose.yml` — `db` (mysql:8.4, utf8mb4, named volume, healthcheck) and
+  `api` (PHP 8.3 + `pdo_mysql`, serving `0.0.0.0:8000`, waits for the db to be
+  healthy), plus `docker/api.Dockerfile` and `.env.docker.example`.
+- `docs/RUNBOOK.md` — prerequisites, both the Docker and native (Laragon/XAMPP)
+  paths, the seeded accounts, reset procedures, smoke test and troubleshooting.
+
+**Verified against a live MySQL 8.4.3**: 9 migrations applied (33 tables),
+re-run = 0 applied, seeder 102 rows then 0 on re-run, smoke test passed 4
+consecutive times, and the full PHPUnit suite still green.
+
+**Findings recorded (no code changed):**
+
+- **AD-017** — the `schema_migrations` ledger table and the dev tooling above.
+- **F-7** (`docs/FINAL_AUDIT.md`) — `QrService::validateAndConsume()` has no
+  callers, so `qr_used_nonces` is never written and its `REPLAYED` branch cannot
+  fire. **Not an exploitable hole** (replay is still blocked by the per-student
+  `qr_nonce` guard DD-004, challenge single-use DD-003 and `UNIQUE(session,
+  student)` C-001, all covered by passing tests), but the cross-student case is
+  unguarded and the docblock is inaccurate. Fixing it changes the algorithm, so
+  it is documented for approval rather than changed silently.
+- **F-2 / OQ-004** — resolved for local development; production provisioning
+  remains open.
+
 ### Added (Final Security & Architecture Audit — Phase 23)
 
 - `docs/FINAL_AUDIT.md` — end-of-project review against every authoritative

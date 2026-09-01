@@ -100,7 +100,19 @@ structural entities.
 bulk import, invite e-mail, self-registration) and how initial passwords are
 set. No `users` CRUD endpoint exists yet.
 
-**Status:** 🟡 Interim resolution in place — account provisioning flow still awaiting user clarification
+**Update (Phase 24, 2026-09-01):** local development is now unblocked.
+`backend/scripts/seed.php` provisions the first `SUPER_ADMIN` plus an ADMIN, two
+teachers and twelve students, computing every `password_hash` at runtime with
+`PASSWORD_ARGON2ID` from `SEED_DEFAULT_PASSWORD` in the gitignored
+`backend/.env`. It refuses to run unless `APP_ENV=local`, so it can never create
+demo accounts in a shared or production database. See `docs/RUNBOOK.md` and
+`ACCEPTED_DEVIATIONS.md` AD-017.
+
+**Still open:** how accounts are provisioned in a real deployment — an admin
+user-CRUD endpoint, bulk import, invite e-mail, or self-registration — and how
+initial passwords are delivered and rotated. No `users` CRUD endpoint exists.
+
+**Status:** 🟡 Local development resolved (Phase 24) — production provisioning flow still awaiting user clarification
 
 **Source:** RBAC
 

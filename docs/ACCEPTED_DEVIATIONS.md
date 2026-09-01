@@ -710,6 +710,56 @@ teacher→course/class/student relationship verified before any row is read.
 
 ---
 
+## AD-017: `schema_migrations` ledger table + local seed tooling (Phase 24)
+
+**Source wording:** `database/docs/TABLES.md` defines 31 domain tables and no
+migration ledger. `docs/ARCHITECTURE_RULES.md` §1.3 lists a `scripts/` directory
+in the project layout. `docs/FINAL_AUDIT.md` F-2 and `docs/OPEN_QUESTIONS.md`
+OQ-004 record that no user-provisioning path exists, so the system could not be
+logged into at all.
+
+**What was done (Phase 24):**
+
+1. **New table `schema_migrations`** (`database/migrations/000_create_schema_migrations.sql`).
+   It is *infrastructure*, not a domain entity: no foreign keys, no personal
+   data, no secrets — just `filename`, `checksum`, `statements`, `duration_ms`,
+   `applied_at`. It is deliberately absent from `TABLES.md`, exactly like
+   `qr_used_nonces` (AD-008). Without it a migration runner cannot be idempotent.
+   The runner also creates the table itself before applying anything, so it works
+   against a completely empty database.
+
+2. **Migration runner** `backend/scripts/migrate.php` and a quote-aware splitter
+   `Infrastructure\Database\SqlScriptSplitter`. The splitter exists because the
+   shipped migrations contain semicolons **inside string literals**
+   (`COMMENT='Core identity record; password_hash is Argon2id only'`), which a
+   naive `explode(';')` would corrupt. No migration file was edited.
+
+3. **Demo seeder** `backend/scripts/seed.php` + `database/seeders/demo_dataset.php`.
+   Resolves F-2/OQ-004 **for local development only**: it refuses to run unless
+   `APP_ENV=local`, takes the demo password from `SEED_DEFAULT_PASSWORD` in the
+   gitignored `backend/.env`, and computes every `password_hash` at runtime with
+   `PASSWORD_ARGON2ID`. No hash and no plaintext password is committed. Production
+   provisioning remains open (OQ-004).
+
+4. **Local runtime** `docker-compose.yml` + `docker/api.Dockerfile` +
+   `.env.docker.example`, and `docs/RUNBOOK.md`. Development tooling only — it
+   runs the same `php -S` development server `backend/README.md` already
+   documents. No deployment decision is implied (OQ-007 stays open).
+
+**Why this is acceptable:** no domain table, foreign key, constraint, algorithm,
+authentication/authorization rule or security control changed. Everything added
+is developer tooling plus one infrastructure table. The seeder writes only
+through the documented schema and produces data a human admin could have created
+through the existing admin API by hand.
+
+**Enforced in:** `database/migrations/000_create_schema_migrations.sql`,
+`backend/scripts/{migrate,seed,smoke_test,_cli}.php`,
+`backend/src/Infrastructure/Database/SqlScriptSplitter.php`,
+`database/seeders/demo_dataset.php`, `docker-compose.yml`,
+`docker/api.Dockerfile`, `docs/RUNBOOK.md`.
+
+---
+
 ## Change protocol
 
 New deviations may be added here **only** after review. A deviation that touches
