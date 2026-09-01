@@ -9,6 +9,81 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 
 ## [Unreleased]
 
+### Added (Web Client — Teacher Live Attendance — Phase 25)
+
+Resolves `FINAL_AUDIT` **F-5** (web client never built) and **OQ-006** (frontend
+technology). See `docs/WEB_CLIENT.md`.
+
+**Technology (OQ-006 → resolved, AD-018)**
+
+Static HTML5 + CSS + vanilla JavaScript + **Bootstrap 5.3.3**, served from
+`web/`, calling the REST API with `fetch` and a Bearer token. **No build step,
+no SPA framework, no third-party runtime dependency** — Bootstrap and
+`qrcode-generator` 1.4.4 (MIT) are vendored into `web/vendor/`. The QR payload is
+rendered to SVG **in the browser** and never leaves the machine.
+
+*Accuracy note:* the original specification names no frontend technology (its
+only technology list is for the backend), so this is a decision filling that
+gap, not one recovered from the spec. `ARCHITECTURE_FREEZE` §2.15 permits it.
+
+**Screens**
+
+- **Login** — token pair in memory + `sessionStorage`; single-flight refresh on
+  `401` via `/auth/refresh` then one retry; failed login shows the API's own
+  `Invalid credentials.` and nothing more.
+- **Dashboard** — the four blocks §12 names (bugünkü dersler, aktif yoklama, son
+  yoklamalar, toplam katılım). *"YOKLAMA BAŞLAT"* is enabled **only** when
+  `GET /teacher/attendance/eligibility` says so; the client evaluates nothing.
+- **Live attendance** — left: the dynamic QR (auto-refreshing on the API's own
+  interval) + course/class/room/teacher/start/remaining + counters
+  **TOPLAM / VAR / YOK / GEÇ / MAZERETLİ / BEKLİYOR**; right: the live roster with
+  name, number, status badge, **QR/MANUEL/SİSTEM** source, timestamp and a status
+  selector. Search, student-number filter and status filter. Manual override and
+  bulk actions require confirmation and take a **Gerekçe** written to the audit
+  log. **YOKLAMAYI KAPAT** / **YOKLAMAYI İPTAL ET** with confirmation. AJAX
+  polling every 3 s (AD-010), roster re-fetched only when `students_version`
+  changes, paused while the tab is hidden. Stacks QR → summary → list on mobile.
+  Status is conveyed by badge **text** as well as colour.
+- **Reports** — course / class / student with date range and pagination.
+
+**Backend addition (AD-018)** — the dashboard was impossible to build: every
+teacher endpoint required an id a teacher could not discover, and the TEACHER
+role already held `profile.self.view` / `schedule.self.view` with **no route
+consuming them** (the student equivalents shipped in Phase 16; the teacher pair
+was missed). Added two read-only endpoints mirroring `Student\SelfController`:
+
+- `GET /api/v1/teacher/dashboard` (`profile.self.view`)
+- `GET /api/v1/teacher/schedule` (`schedule.self.view`)
+
+No new permission, no RBAC change, no migration, no schema change, no change to
+any existing endpoint or security control. `teachers.id` comes from the token;
+a non-teacher gets 403.
+
+**Fixed — two pre-existing MySQL-only backend defects**
+
+Found by driving the client against a live MySQL. Both are reused named
+placeholders, which SQLite (the test harness) accepts and MySQL rejects with
+`SQLSTATE[HY093]` under `PDO::ATTR_EMULATE_PREPARES = false`:
+
+| Location | Bug | Symptom |
+|---|---|---|
+| `AttendanceRecordRepository::liveRoster()` | `:q` used 3× | **HTTP 500** on every roster search |
+| `RelationshipRepository::teacherSharesClassWithStudent()` | `:tid` used 2× | swallowed by `safeExists()` → legitimate teacher **wrongly denied (403)** a term-filtered student report |
+
+Fixed by giving each occurrence its own placeholder — no logic or security
+change; parameters remain bound. New regression guard
+`SqlPlaceholderReuseTest` statically scans the repository layer and was verified
+to fail on both defects before the fix.
+
+**Verified in a real browser** against the seeded database: login (bad password →
+generic message; good password → dashboard), eligibility-gated session start,
+QR rendered and auto-refreshed, a student checking in via the API appearing on
+the teacher's screen within ~3 s with **VAR/QR/timestamp** and updated counters,
+manual override to **GEÇ/MANUEL** with the reason landing in `audit_logs` (UTF-8
+verified byte-for-byte), search/number/status filters, close → all WAITING become
+**YOK**, and a cross-teacher report request refused **403** by the server.
+Backend suite: **587 tests, 1544 assertions**; migrate + seed + smoke test green.
+
 ### Added (Local Runtime & Seed Data — Phase 24)
 
 The backend and mobile code were complete but had never been executed by a human:

@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QRIVO — Giriş</title>
+  <link rel="stylesheet" href="vendor/bootstrap.min.css">
+  <link rel="stylesheet" href="assets/css/app.css">
+</head>
+<body>
+
+<main class="login-shell">
+  <div class="login-card">
+    <div class="text-center mb-4">
+      <div class="navbar-brand-mark fs-2 text-primary">QRIVO</div>
+      <p class="text-body-secondary mb-0">Öğretmen Paneli</p>
+    </div>
+
+    <div class="card shadow-sm">
+      <div class="card-body p-4">
+        <h1 class="h5 card-title mb-3">Giriş Yap</h1>
+
+        <form id="loginForm" novalidate>
+          <div class="mb-3">
+            <label for="email" class="form-label">E-posta</label>
+            <input type="email" class="form-control" id="email" name="email"
+                   autocomplete="username" required autofocus>
+          </div>
+
+          <div class="mb-3">
+            <label for="password" class="form-label">Parola</label>
+            <div class="input-group">
+              <input type="password" class="form-control" id="password" name="password"
+                     autocomplete="current-password" required>
+              <button class="btn btn-outline-secondary" type="button" id="togglePassword"
+                      aria-label="Parolayı göster/gizle">Göster</button>
+            </div>
+          </div>
+
+          <!-- The API's own message is shown here verbatim; the client never
+               explains WHY a login failed. -->
+          <div id="loginError" class="alert alert-danger d-none" role="alert" aria-live="assertive"></div>
+
+          <button type="submit" class="btn btn-primary w-100" id="loginBtn">Giriş Yap</button>
+        </form>
+
+        <hr class="my-4">
+
+        <details>
+          <summary class="text-body-secondary small">Sunucu adresi</summary>
+          <div class="input-group input-group-sm mt-2">
+            <input type="url" class="form-control" id="apiBase" aria-label="API adresi">
+            <button class="btn btn-outline-secondary" type="button" id="saveApiBase">Kaydet</button>
+          </div>
+          <div class="form-text">Varsayılan: <code>http://localhost:8000</code></div>
+        </details>
+      </div>
+    </div>
+
+    <p class="text-center text-body-secondary small mt-3 mb-0">
+      Tüm yetkilendirme kararları sunucu tarafında verilir.
+    </p>
+  </div>
+</main>
+
+<div id="toastHost" aria-live="polite" aria-atomic="true"></div>
+
+<script src="vendor/bootstrap.bundle.min.js"></script>
+<script src="assets/js/config.js"></script>
+<script src="assets/js/api.js"></script>
+<script src="assets/js/ui.js"></script>
+<script src="assets/js/auth.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var form = document.getElementById('loginForm');
+  var errorBox = document.getElementById('loginError');
+  var loginBtn = document.getElementById('loginBtn');
+  var apiBaseInput = document.getElementById('apiBase');
+
+  apiBaseInput.value = window.QRIVO_CONFIG.apiBase;
+
+  document.getElementById('saveApiBase').addEventListener('click', function () {
+    window.QRIVO_CONFIG.setApiBase(apiBaseInput.value);
+    window.QrivoUi.toast('Sunucu adresi kaydedildi: ' + window.QRIVO_CONFIG.apiBase, 'success');
+  });
+
+  document.getElementById('togglePassword').addEventListener('click', function () {
+    var field = document.getElementById('password');
+    var show = field.type === 'password';
+    field.type = show ? 'text' : 'password';
+    this.textContent = show ? 'Gizle' : 'Göster';
+  });
+
+  function showError(message) {
+    errorBox.textContent = message;
+    errorBox.classList.remove('d-none');
+  }
+
+  // Already signed in? Skip the form.
+  if (window.QrivoApi.isAuthenticated()) {
+    window.location.replace('dashboard.html');
+    return;
+  }
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    errorBox.classList.add('d-none');
+
+    var email = document.getElementById('email').value.trim();
+    var password = document.getElementById('password').value;
+
+    if (!email || !password) {
+      showError('E-posta ve parola gereklidir.');
+      return;
+    }
+
+    window.QrivoUi.setBusy(loginBtn, true, 'Giriş yapılıyor…');
+
+    window.QrivoApi.login(email, password).then(function (data) {
+      var roles = (data.user && data.user.roles) || [];
+      var next = new URLSearchParams(window.location.search).get('next');
+      // Routing convenience only — the server still authorizes every request.
+      var target = next && /^[a-z_]+\.html$/.test(next) ? next : 'dashboard.html';
+      if (roles.indexOf('TEACHER') === -1 && roles.indexOf('SUPER_ADMIN') === -1 && roles.indexOf('ADMIN') === -1) {
+        target = 'dashboard.html';
+      }
+      window.location.href = target;
+    }).catch(function (error) {
+      // Render exactly what the API said — no security detail is inferred here.
+      showError(error.message);
+      window.QrivoUi.setBusy(loginBtn, false);
+    });
+  });
+})();
+</script>
+</body>
+</html>

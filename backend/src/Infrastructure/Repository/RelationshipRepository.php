@@ -257,8 +257,13 @@ final class RelationshipRepository extends BaseRepository
         $bindings = ['uid' => $userId, 'sid' => $studentId];
 
         if ($academicTermId !== null) {
-            $sql .= ' AND tca.`academic_term_id` = :tid AND sca.`academic_term_id` = :tid';
-            $bindings['tid'] = $academicTermId;
+            // Distinct placeholders per occurrence — MySQL rejects a reused named
+            // parameter with SQLSTATE[HY093] when prepares are not emulated.
+            // Reuse here was silently swallowed by safeExists(), denying a
+            // legitimate teacher instead of crashing.
+            $sql .= ' AND tca.`academic_term_id` = :tid1 AND sca.`academic_term_id` = :tid2';
+            $bindings['tid1'] = $academicTermId;
+            $bindings['tid2'] = $academicTermId;
         }
 
         return $this->safeExists($sql . ' LIMIT 1', $bindings);

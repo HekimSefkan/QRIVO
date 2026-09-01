@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QRIVO — Öğretmen Paneli</title>
+  <link rel="stylesheet" href="vendor/bootstrap.min.css">
+  <link rel="stylesheet" href="assets/css/app.css">
+</head>
+<body>
+
+<nav class="navbar navbar-expand-lg bg-white border-bottom sticky-top">
+  <div class="container-fluid">
+    <a class="navbar-brand navbar-brand-mark text-primary" href="dashboard.html">QRIVO</a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav"
+            aria-controls="nav" aria-expanded="false" aria-label="Menüyü aç/kapat">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="nav">
+      <ul class="navbar-nav me-auto">
+        <li class="nav-item"><a class="nav-link active" aria-current="page" href="dashboard.html">Panel</a></li>
+        <li class="nav-item"><a class="nav-link" href="reports.html">Raporlar</a></li>
+      </ul>
+      <div class="d-flex align-items-center gap-3">
+        <div class="text-end small">
+          <div class="fw-semibold" id="navUserName">—</div>
+          <div class="text-body-secondary" id="navUserRole"></div>
+        </div>
+        <button class="btn btn-outline-secondary btn-sm" id="logoutBtn">Çıkış</button>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<main class="container-fluid py-4">
+
+  <!-- Aktif yoklama -->
+  <section class="mb-4" id="activeSection" hidden>
+    <h2 class="h5 mb-3">Aktif Yoklama</h2>
+    <div id="activeList" class="row g-3"></div>
+  </section>
+
+  <!-- Bugünkü dersler -->
+  <section class="mb-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h2 class="h5 mb-0">Bugünkü Dersler</h2>
+      <button class="btn btn-sm btn-outline-secondary" id="refreshBtn">Yenile</button>
+    </div>
+    <div id="todayList" class="row g-3">
+      <div class="col-12"><div class="placeholder-glow"><span class="placeholder col-4"></span></div></div>
+    </div>
+  </section>
+
+  <div class="row g-4">
+    <!-- Toplam katılım -->
+    <section class="col-12 col-lg-4">
+      <h2 class="h5 mb-3">Toplam Katılım</h2>
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <div class="counter-grid" id="totalsGrid"></div>
+          <p class="text-body-secondary small mb-0 mt-3" id="totalsSummary"></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Son yoklamalar -->
+    <section class="col-12 col-lg-8">
+      <h2 class="h5 mb-3">Son Yoklamalar</h2>
+      <div class="card shadow-sm">
+        <div class="table-responsive">
+          <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+              <tr>
+                <th scope="col">Ders</th>
+                <th scope="col">Sınıf</th>
+                <th scope="col">Başlangıç</th>
+                <th scope="col">Durum</th>
+                <th scope="col" class="text-end">VAR / TOPLAM</th>
+                <th scope="col"></th>
+              </tr>
+            </thead>
+            <tbody id="recentBody">
+              <tr><td colspan="6" class="text-center text-body-secondary py-4">Yükleniyor…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<!-- Shared confirmation dialog -->
+<div class="modal fade" id="confirmModal" tabindex="-1" aria-hidden="true" aria-labelledby="confirmTitle">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="confirmTitle" data-confirm-title>Onay</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Kapat"></button>
+      </div>
+      <div class="modal-body">
+        <p data-confirm-body class="mb-0"></p>
+        <div class="mt-3 d-none" data-confirm-reason-wrap>
+          <label for="confirmReason" class="form-label">Gerekçe (isteğe bağlı)</label>
+          <input type="text" class="form-control" id="confirmReason" data-confirm-reason maxlength="500">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Vazgeç</button>
+        <button type="button" class="btn btn-primary" data-confirm-ok>Onayla</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toastHost" aria-live="polite" aria-atomic="true"></div>
+
+<script src="vendor/bootstrap.bundle.min.js"></script>
+<script src="assets/js/config.js"></script>
+<script src="assets/js/api.js"></script>
+<script src="assets/js/ui.js"></script>
+<script src="assets/js/auth.js"></script>
+<script src="assets/js/dashboard.js"></script>
+</body>
+</html>
