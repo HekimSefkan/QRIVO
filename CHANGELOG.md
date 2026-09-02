@@ -9,6 +9,78 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 
 ## [Unreleased]
 
+### Added (CI & Deployment — Phase 29)
+
+**Continuous integration — `.github/workflows/ci.yml`**
+
+There was no `.github/` directory at all, so AD-011's claim that the Dart tests
+"run in CI" was false — they ran nowhere. Two jobs, on every push and pull
+request to `main`, with no `continue-on-error` and no skipped suites:
+
+- **`backend`** — PHP 8.3 + a **MySQL 8.4 service container**. Runs
+  `composer install` (from the committed lockfile), the migrations, `--status`,
+  a second migrate to prove idempotence, the **full PHPUnit suite**, the seeder
+  twice (also idempotent by design), then boots the API and runs the 16-step
+  smoke test over real HTTP.
+- **`mobile`** — Flutter stable: `pub get`, `analyze --fatal-infos`, `test`.
+
+The MySQL container is not decoration. PHPUnit runs on in-memory SQLite, which
+**tolerates a reused named placeholder while MySQL rejects it** — the exact
+blind spot that let two defects reach `main` before Phase 25. The migrations and
+the smoke test are the only things in the repository that touch real MySQL, so
+CI runs them on every push.
+
+The seed password is generated per run with `openssl rand`; no credential is
+committed, and the `.env` CI writes is never printed, including on failure.
+
+**Deployment guide — `docs/DEPLOYMENT.md`**
+
+Reference deployment: nginx + PHP-FPM 8.3 + MySQL 8 on one host. Covers the
+`backend/public` document root and the front-controller rewrite (with only
+`index.php` executable), TLS and HSTS, MySQL tuning (`READ-COMMITTED`, matching
+the explicit `FOR UPDATE` locks the attendance flow takes; `bind-address` on
+loopback; a **least-privilege app account with no DDL grant**), the required
+`.env` values, log retention, and a tested backup/restore procedure.
+
+Includes a **production-safe first SUPER_ADMIN** procedure (§9). `seed.php`
+cannot be used — it refuses to run outside `APP_ENV=local` and creates twelve
+demo students. Since no admin user-provisioning endpoint exists yet (OQ-004,
+F-2), the account is bootstrapped by direct insert: the Argon2id hash is
+generated interactively via `readline` so the password never enters shell
+history or `ps`, then a single transaction inserts the user and grants the role.
+
+**Fixed — F-1: one authentication path (both middlewares deleted)**
+
+`AuthMiddleware` and `AuthorizationMiddleware` existed but were never wired.
+Wiring them was considered and **rejected on evidence**: `AuthMiddleware` called
+`validateToken($rawToken)` with **no `DeviceContext`**, while the live path
+`BaseController::authenticate()` passes one — and that argument is what applies
+the idle timeout, fingerprint binding and activity recording (§6.13, AD-013).
+The middleware predated Phase 18 and was never updated, so wiring it would have
+*skipped* those controls. `AuthorizationMiddleware` could not be wired
+independently anyway (it reads a param only `AuthMiddleware` sets) and would
+have needed a per-route requirement map the router has no place for.
+
+Both were deleted, with `AuthorizationMiddlewareTest`. **No test was weakened** —
+those 6 tests covered deleted code. Suite: 587 → **581 tests, 1537 assertions,
+all passing**. The middleware layer itself remains (`CorsMiddleware`,
+`JsonBodyMiddleware`, `MiddlewareInterface`, `MiddlewarePipeline`).
+
+**Verified locally** before commit — the exact command chain CI runs, against
+real MySQL 8.4: `migrate --fresh` (9 applied, 33 tables) → re-migrate (0 applied)
+→ `--status` (0 pending) → PHPUnit 581 → `seed` ×2 → smoke test (16 steps).
+
+> **Not verified:** the workflow file itself has never executed. GitHub Actions
+> cannot run on this machine, so the YAML, the action versions and the service
+> container are unproven until the first push. The commands inside it are the
+> ones verified above.
+
+> **F-4 (permissive CORS) is documented, not fixed.** `docs/DEPLOYMENT.md` §5
+> states the requirement and gives the verification `curl`, but the code default
+> is still `*` when unset. Nothing yet stops a deployment shipping with a
+> wildcard; the boot-time guard proposed in the Phase 27 brief needs the OQ-007
+> answer first.
+
 ### Added (Mobile Runnability — Android/iOS Scaffolding — Phase 26)
 
 Supersedes the "platform folders are gitignored, tests never executed" half of

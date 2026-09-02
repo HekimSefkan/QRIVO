@@ -1,0 +1,190 @@
+name: CI
+
+# Runs on every push and pull request targeting main. Any failing test fails the
+# build — no `continue-on-error`, no `|| true`, no skipped suites.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A newer push to the same ref cancels the older run. Never cancels on main, so
+# the recorded status of a merged commit is always a complete run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  # ───────────────────────────────────────────────────────────────────────────
+  # Backend — PHPUnit runs on in-memory SQLite, but the migrations and the
+  # Phase 24 smoke test run against a real MySQL 8. That distinction matters:
+  # SQLite tolerates a reused named placeholder and MySQL does not, which is how
+  # two production defects reached main unnoticed before Phase 25. The smoke
+  # test is the only thing in this repository that exercises real MySQL, so it
+  # runs here on every push.
+  # ───────────────────────────────────────────────────────────────────────────
+  backend:
+    name: Backend (PHP 8.3 + MySQL 8)
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root
+          MYSQL_DATABASE: qrivo
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pci-root --silent"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+          --health-start-period=30s
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP 8.3
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          # pdo_sqlite is what the PHPUnit suite actually runs on;
+          # pdo_mysql is what the migrations and smoke test need.
+          extensions: mbstring, pdo_mysql, pdo_sqlite
+          coverage: none
+          ini-values: error_reporting=E_ALL
+
+      - name: Cache Composer packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/composer/files
+          key: composer-${{ runner.os }}-${{ hashFiles('backend/composer.lock') }}
+          restore-keys: composer-${{ runner.os }}-
+
+      # composer.lock is committed, so install (not update) — CI resolves the
+      # exact versions developers are running.
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      # The .env is created here and never committed. The seed password is
+      # generated per run: it protects an ephemeral database that is destroyed
+      # when the job ends, and it must not be a literal in this file.
+      - name: Write CI environment
+        run: |
+          cp .env.example .env
+          SEED_PASSWORD="ci-$(openssl rand -hex 16)"
+          {
+            echo "APP_ENV=local"
+            echo "APP_DEBUG=true"
+            echo "DB_DRIVER=mysql"
+            echo "DB_HOST=127.0.0.1"
+            echo "DB_PORT=3306"
+            echo "DB_DATABASE=qrivo"
+            echo "DB_USERNAME=root"
+            echo "DB_PASSWORD=ci-root"
+            echo "LOG_LEVEL=error"
+            echo "SEED_DEFAULT_PASSWORD=${SEED_PASSWORD}"
+          } >> .env
+
+      - name: Wait for MySQL
+        run: |
+          for i in $(seq 1 30); do
+            if mysqladmin ping -h 127.0.0.1 -P 3306 -uroot -pci-root --silent 2>/dev/null; then
+              echo "MySQL is up"; exit 0
+            fi
+            sleep 2
+          done
+          echo "MySQL did not become ready in time"; exit 1
+
+      - name: Run migrations
+        run: php scripts/migrate.php
+
+      # Proves the schema_migrations ledger recorded every file, and that a
+      # second run is a no-op rather than a re-apply.
+      - name: Verify migrations are idempotent
+        run: |
+          php scripts/migrate.php --status
+          php scripts/migrate.php
+
+      - name: PHPUnit
+        run: vendor/bin/phpunit --configuration phpunit.xml
+
+      - name: Seed the demo dataset
+        run: php scripts/seed.php
+
+      # The seeder is idempotent by design (Phase 24); a second run must insert
+      # nothing. This catches a regression that would otherwise only show up as
+      # duplicate rows in a developer's database.
+      - name: Verify the seeder is idempotent
+        run: php scripts/seed.php
+
+      - name: Start the API
+        run: |
+          nohup php -S 127.0.0.1:8000 -t public > /tmp/qrivo-server.log 2>&1 &
+          disown || true
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/api/v1/health > /dev/null 2>&1; then
+              echo "API is up"; exit 0
+            fi
+            sleep 1
+          done
+          echo "API did not start:"; cat /tmp/qrivo-server.log; exit 1
+
+      - name: Smoke test (real HTTP against real MySQL)
+        run: php scripts/smoke_test.php --base-url=http://127.0.0.1:8000
+
+      # Only on failure, and only the server log — never the .env, which holds
+      # the generated seed password.
+      - name: Server log on failure
+        if: failure()
+        run: cat /tmp/qrivo-server.log || true
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Mobile — analyze and test only. No Android build: `flutter test` needs no
+  # Android SDK, and adding a build would roughly quadruple the job for no extra
+  # signal on the Dart code. AD-011 records that the APK build is verified
+  # locally instead.
+  # ───────────────────────────────────────────────────────────────────────────
+  mobile:
+    name: Mobile (Flutter stable)
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: mobile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Tracks the stable channel. Last verified locally on Flutter 3.47.2 /
+      # Dart 3.13.2; pubspec.yaml constrains the SDK to >=3.3.0 <4.0.0, so a
+      # stable release carrying Dart 4 will fail `pub get` here loudly rather
+      # than silently drifting.
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # --fatal-infos: the tree is at zero analyzer issues as of Phase 26, and
+      # this keeps it there. Lint drift is much cheaper to fix at the commit
+      # that introduces it.
+      - name: Analyze
+        run: flutter analyze --fatal-infos
+
+      - name: Test
+        run: flutter test
