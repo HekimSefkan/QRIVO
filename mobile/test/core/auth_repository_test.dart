@@ -29,7 +29,7 @@ void main() {
           }),
           200,
         );
-      }));
+      }),);
 
       final result = await repo.login('s@x.test', 'pw');
 
@@ -45,12 +45,12 @@ void main() {
       final repo = AuthRepository(MockClient((req) async => http.Response(
             jsonEncode({'message': 'Invalid credentials.'}),
             401,
-          )));
+          ),),);
 
       await expectLater(
         repo.login('s@x.test', 'bad'),
         throwsA(isA<ApiException>()
-            .having((e) => e.message, 'message', 'Invalid credentials.')),
+            .having((e) => e.message, 'message', 'Invalid credentials.'),),
       );
     });
 
@@ -64,7 +64,7 @@ void main() {
               },
             }),
             200,
-          )));
+          ),),);
 
       final session = await repo.refresh('r1');
 
@@ -88,7 +88,7 @@ void main() {
           }),
           200,
         );
-      }));
+      }),);
 
       final user = await repo.me('token-x');
 
@@ -98,7 +98,7 @@ void main() {
 
     test('me maps a 401 to ApiException', () async {
       final repo = AuthRepository(MockClient((req) async =>
-          http.Response(jsonEncode({'message': 'Unauthenticated.'}), 401)));
+          http.Response(jsonEncode({'message': 'Unauthenticated.'}), 401),),);
 
       await expectLater(repo.me('dead'), throwsA(isA<ApiException>()));
     });

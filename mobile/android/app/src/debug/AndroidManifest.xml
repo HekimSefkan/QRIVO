@@ -1,0 +1,16 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The INTERNET permission is required for development. Specifically,
+         the Flutter tool needs it to communicate with the running application
+         to allow setting breakpoints, to provide hot reload, etc.
+    -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- Debug-only: point at the cleartext exception for the local dev API.
+         This <application> element is merged into the one in src/main by the
+         manifest merger, and ONLY for the debug build type — profile and
+         release builds neither declare this attribute nor contain the resource
+         it names, so they keep Android's default (cleartext blocked on API 28+).
+         See app/src/debug/res/xml/network_security_config.xml. -->
+    <application
+        android:networkSecurityConfig="@xml/network_security_config" />
+</manifest>

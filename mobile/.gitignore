@@ -20,10 +20,54 @@ pubspec.lock
 *.env
 .env
 
-# Generated platform folders (recreated by `flutter create .`)
-android/
-ios/
+# ------------------------------------------------------------------
+# Platform folders
+# ------------------------------------------------------------------
+# android/ and ios/ ARE committed (Phase 26, AD-011): they carry QRIVO's own
+# configuration — camera permission, minSdk, the debug-only cleartext HTTP
+# exception — which is not reproducible by re-running `flutter create`.
+# Only their build output, machine-local paths and signing material are ignored.
+#
+# The desktop/web targets are NOT used by this app and stay ignored; if one is
+# ever adopted it should be committed on the same terms as android/ and ios/.
 linux/
 macos/
 windows/
 web/
+
+# Android — build output and machine-local / secret files only
+android/.gradle/
+android/.kotlin/
+android/build/
+android/app/build/
+android/captures/
+# machine-local SDK path, written by Flutter
+android/local.properties
+# signing config — NEVER commit
+android/key.properties
+android/app/release/
+android/app/*.jks
+android/app/*.keystore
+android/gradle/wrapper/gradle-wrapper.jar
+
+# iOS — build output, dependency checkouts and generated config only
+ios/build/
+ios/Pods/
+ios/Podfile.lock
+ios/.symlinks/
+ios/Flutter/App.framework/
+ios/Flutter/Flutter.framework/
+ios/Flutter/Flutter.podspec
+ios/Flutter/ephemeral/
+# generated, contains this machine's paths
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+ios/ServiceDefinitions.json
+ios/Runner/GeneratedPluginRegistrant.*
+ios/Runner.xcworkspace/xcuserdata/
+ios/Runner.xcodeproj/xcuserdata/
+ios/Runner.xcodeproj/project.xcworkspace/xcuserdata/
+# provisioning profiles / signing certs — NEVER commit
+**/*.mobileprovision
+**/*.p12
+**/*.cer

@@ -9,6 +9,92 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 
 ## [Unreleased]
 
+### Added (Mobile Runnability — Android/iOS Scaffolding — Phase 26)
+
+Supersedes the "platform folders are gitignored, tests never executed" half of
+**AD-011**. The Flutter SDK (**3.47.2 / Dart 3.13.2**) was installed on the
+development machine, so this phase is verified rather than asserted.
+
+**Platform scaffolding generated and committed**
+
+`flutter create --platforms=android,ios --org com.qrivo --project-name
+qrivo_mobile .` wrote 70 files and modified exactly **one** pre-existing file —
+`analysis_options.yaml`, to which it only *added* an `exclude:` block for
+`build/`, `android/`, `ios/`. Nothing hand-authored was overwritten, so that
+addition was kept; its generated `test/widget_test.dart` (the counter-app
+template, referencing a `MyApp` that does not exist here) was deleted. `lib/`,
+`test/`, `pubspec.yaml`, `README.md` and `.gitignore` were untouched.
+
+`android/` and `ios/` are **no longer gitignored**: they now carry QRIVO's own
+configuration, which re-running `flutter create` would not reproduce. Build
+output, machine-local files (`local.properties`, `Generated.xcconfig`),
+dependency checkouts (`Pods/`, `.symlinks/`) and **all signing material**
+(`*.jks`, `*.keystore`, `key.properties`, `*.mobileprovision`, `*.p12`, `*.cer`)
+remain ignored. The unused desktop/web targets remain ignored.
+
+**Platform configuration** (permission/presentation concerns only)
+
+| Concern | Android | iOS |
+|---|---|---|
+| Camera | `CAMERA` permission + rationale; `camera`/`camera.autofocus` `required="false"` so the app installs on camera-less devices | `NSCameraUsageDescription` |
+| Local HTTP | `network_security_config.xml` in the **`debug` source set only** — physically absent from profile/release APKs | `NSAllowsLocalNetworking` |
+| Minimum OS | `minSdk = maxOf(flutter.minSdkVersion, 23)` | Flutter default |
+
+The `minSdk` floor is 23, not `mobile_scanner`'s documented 21:
+`flutter_secure_storage` 9.2.4 only uses `EncryptedSharedPreferences` from API 23
+(`FlutterSecureStorage.java` gates it on `SDK_INT >= VERSION_CODES.M`), and below
+that it silently falls back to a weaker store — quietly invalidating the
+token-storage guarantee `mobile/README.md` claims. Flutter 3.47.2 already
+defaults to 24, so this raises nothing today; it stops a future default from
+dropping under 23 unnoticed.
+
+**Configurable API base URL** — `AppConfig` now accepts `API_BASE_URL` in
+addition to the existing `QRIVO_API_BASE_URL` (the namespaced name wins if both
+are passed, so existing build scripts cannot be silently overridden). Emulator
+values are documented: Android emulator `10.0.2.2:8000`, iOS simulator
+`127.0.0.1:8000`, physical device the LAN IP.
+
+**Fixed — 401 retry re-sent the dead token**
+
+Running the Dart suite for the first time exposed a real defect.
+`ApiClient._send()` handled a 401 by calling `_onUnauthorized()` and then
+**discarding the fresh token it returned**, re-asking `_tokenProvider()` for the
+retry. In the app this happened to work, because `AuthController` writes the new
+session before returning — but it contradicted the documented contract of the
+`UnauthorizedHandler` typedef, and any caching in the provider would have made
+the retry a guaranteed second 401, signing a student out mid-scan. The retry now
+carries the token the auth layer just minted. Transport fix only: no attendance
+rule, verdict or authorization decision moved to the client.
+
+**Verification** — `flutter analyze`: **no issues**. `flutter test`: **67 tests,
+all passing** (previously authored but never executed; 22 lint infos auto-fixed
+with `dart fix`). Android is verified by real `flutter build apk` runs in **both**
+debug and release, with the merged manifests inspected rather than assumed:
+
+| Check | Debug | Release |
+|---|---|---|
+| `android.permission.CAMERA` | present | present |
+| `android:networkSecurityConfig` | present | **absent** |
+| `usesCleartextTraffic` | — | **absent** |
+| `minSdkVersion` | 24 | 24 |
+
+The debug-only resource was additionally confirmed **physically absent from the
+release APK** by listing the archive entries — that is the evidence behind the
+claim that cleartext HTTP cannot reach a release build.
+
+> **iOS is unverified.** There is no macOS/Xcode available, so the iOS target has
+> never been built — its scaffolding is `flutter create`'s own output plus two
+> `Info.plist` keys. Relatedly, the iOS cleartext exception is not scoped to
+> debug builds the way Android's is, because `Info.plist` is shared by all
+> configurations; the narrow `NSAllowsLocalNetworking` key was chosen so that the
+> unscoped version is still safe (it is *not* `NSAllowsArbitraryLoads`, so
+> cleartext to public hosts stays blocked). See AD-011.
+
+**Docs** — `mobile/README.md` rewritten: no more `flutter create` step, exact run
+commands per target, platform-support table, and an end-to-end **manual test
+script** whose key assertion is that scanning the same QR twice is refused by the
+server.
+
 ### Added (Web Client — Teacher Live Attendance — Phase 25)
 
 Resolves `FINAL_AUDIT` **F-5** (web client never built) and **OQ-006** (frontend

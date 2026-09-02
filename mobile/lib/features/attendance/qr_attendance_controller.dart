@@ -61,7 +61,7 @@ class QrAttendanceController extends ChangeNotifier {
           kind: QrFailureKind.notQrivoCode,
           message:
               'That is not a QRIVO attendance code. Point the camera at the code on the screen.',
-        ));
+        ),);
         return;
       }
 
@@ -91,7 +91,7 @@ class QrAttendanceController extends ChangeNotifier {
       _fail(const AttendanceFailure(
         kind: QrFailureKind.unknown,
         message: 'Something went wrong. Please try again.',
-      ));
+      ),);
     } finally {
       _busy = false;
       notifyListeners();
@@ -165,7 +165,7 @@ class QrAttendanceController extends ChangeNotifier {
     }
     switch (e.statusCode) {
       case 401:
-        return AttendanceFailure(
+        return const AttendanceFailure(
           kind: QrFailureKind.notAuthenticated,
           message: 'Your session has ended. Please sign in again.',
           retryable: false,
@@ -201,12 +201,12 @@ class QrAttendanceController extends ChangeNotifier {
           message: e.message,
         );
       case 422:
-        return AttendanceFailure(
+        return const AttendanceFailure(
           kind: QrFailureKind.invalidQr,
           message: 'This code is not valid. Scan the code on the screen.',
         );
       default:
-        return AttendanceFailure(
+        return const AttendanceFailure(
           kind: QrFailureKind.unknown,
           message: 'Attendance could not be completed. Please try again.',
         );
