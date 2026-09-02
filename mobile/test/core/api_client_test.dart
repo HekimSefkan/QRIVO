@@ -68,14 +68,14 @@ void main() {
       final client = _client((req) async => http.Response(
             jsonEncode({'success': false, 'message': 'Nope.'}),
             403,
-          ));
+          ),);
 
       await expectLater(
         client.get('/x'),
         throwsA(isA<ApiException>()
             .having((e) => e.statusCode, 'statusCode', 403)
             .having((e) => e.message, 'message', 'Nope.')
-            .having((e) => e.isForbidden, 'isForbidden', true)),
+            .having((e) => e.isForbidden, 'isForbidden', true),),
       );
     });
 

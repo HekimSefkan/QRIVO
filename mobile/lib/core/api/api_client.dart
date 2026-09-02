@@ -50,9 +50,14 @@ class ApiClient {
     Map<String, dynamic>? query,
     Object? body,
     bool isRetry = false,
+    String? bearerOverride,
   }) async {
     final uri = AppConfig.endpoint(path, query);
-    final token = await _tokenProvider();
+    // On a retry we use the token [_onUnauthorized] just handed back rather
+    // than asking the provider again: the provider may still be serving the
+    // token that was just rejected, which would make the retry a guaranteed
+    // second 401 and sign the student out mid-scan.
+    final token = bearerOverride ?? await _tokenProvider();
 
     final headers = <String, String>{
       'Accept': 'application/json',
@@ -75,7 +80,14 @@ class ApiClient {
     if (response.statusCode == 401 && !isRetry && _onUnauthorized != null) {
       final refreshed = await _onUnauthorized();
       if (refreshed != null) {
-        return _send(method, path, query: query, body: body, isRetry: true);
+        return _send(
+          method,
+          path,
+          query: query,
+          body: body,
+          isRetry: true,
+          bearerOverride: refreshed,
+        );
       }
     }
 

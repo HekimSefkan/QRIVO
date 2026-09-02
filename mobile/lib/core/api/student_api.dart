@@ -80,7 +80,7 @@ class StudentApi {
     final res = await _client.post('/student/attendance/qr/verify', body: {
       'qr': qr,
       if (sessionUuid != null && sessionUuid.isNotEmpty) 'session_id': sessionUuid,
-    });
+    },);
     return QrPreflight.fromJson(res.object);
   }
 
@@ -101,7 +101,7 @@ class StudentApi {
       'challenge_id': challengeId,
       'nonce': nonce,
       'qr': qr,
-    });
+    },);
     return AttendanceResult.fromJson(res.object);
   }
 

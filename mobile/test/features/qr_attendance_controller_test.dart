@@ -16,11 +16,11 @@ typedef Responder = FutureOr<http.Response> Function(http.Request req);
 
 http.Response _data(Map<String, dynamic> data, [int code = 200]) =>
     http.Response(jsonEncode({'data': data}), code,
-        headers: {'content-type': 'application/json'});
+        headers: {'content-type': 'application/json'},);
 
 http.Response _err(int code, String message) =>
     http.Response(jsonEncode({'message': message}), code,
-        headers: {'content-type': 'application/json'});
+        headers: {'content-type': 'application/json'},);
 
 class _Backend {
   final calls = <String>[];
@@ -122,7 +122,7 @@ void main() {
     });
     test('SESSION_NOT_ACTIVE → session unavailable', () async {
       expect((await failWith('SESSION_NOT_ACTIVE')).kind,
-          QrFailureKind.sessionUnavailable);
+          QrFailureKind.sessionUnavailable,);
     });
     test('REPLAYED → already recorded', () async {
       expect((await failWith('REPLAYED')).kind, QrFailureKind.alreadyRecorded);

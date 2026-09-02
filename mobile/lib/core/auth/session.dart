@@ -22,7 +22,7 @@ class Session {
   /// True when the access token is expired or within the refresh leeway.
   bool get needsRefresh => DateTime.now().isAfter(
         expiresAt.subtract(
-          Duration(seconds: AppConfig.tokenRefreshLeewaySeconds),
+          const Duration(seconds: AppConfig.tokenRefreshLeewaySeconds),
         ),
       );
 
