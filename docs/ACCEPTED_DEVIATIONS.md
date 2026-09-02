@@ -535,6 +535,20 @@ upgrade before a future Flutter bump — tracked as a known issue rather than
 fixed now, since upgrading the scanner is an algorithm-adjacent change to the
 attendance flow and out of scope for this phase.
 
+### Update — Phase 29 (2026-09-02): the CI claim is now true
+
+Point 3 above said the Dart tests "are authored to run in CI". That was
+aspirational — **there was no `.github/` directory**, so they ran nowhere until a
+Flutter SDK was installed in Phase 26 and they were run by hand. Phase 29 added
+`.github/workflows/ci.yml`, whose `mobile` job runs `flutter pub get`,
+`flutter analyze --fatal-infos` and `flutter test` on every push and pull request
+to `main`. The claim is now accurate.
+
+The job deliberately does **not** build an APK: `flutter test` needs no Android
+SDK, and a build would multiply the job time for no additional signal on the Dart
+code. The APK build is verified locally instead, as recorded in the Phase 26
+update above.
+
 ---
 
 ## AD-012: Mobile QR scanner uses `mobile_scanner`; local prefix sniff is UX-only (Phase 17)

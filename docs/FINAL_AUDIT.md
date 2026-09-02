@@ -68,7 +68,7 @@ all 8 migrations, and the backend source tree.
 
 ## 3. Findings (informational — none blocking)
 
-### F-1 — `AuthMiddleware` / `AuthorizationMiddleware` are unwired
+### F-1 — `AuthMiddleware` / `AuthorizationMiddleware` are unwired — ✅ resolved in Phase 29 (deleted)
 
 `Presentation\Http\Middleware\{AuthMiddleware, AuthorizationMiddleware}` exist but
 are **not** added to the pipeline (`Bootstrap\App::registerMiddleware()` adds only
@@ -85,6 +85,27 @@ integration and per-phase suites).
   internal placement choice, not a removed module.
 - **Recommendation:** wire the two classes into the pipeline **or** delete them so
   the codebase has one obvious auth path. Non-urgent.
+
+> **Resolved — 2026-09-02 (Phase 29): both classes deleted.**
+>
+> Wiring them was considered and rejected on evidence. `AuthMiddleware` called
+> `validateToken($rawToken)` with **no `DeviceContext`**, whereas the live path
+> `BaseController::authenticate()` calls `validateToken($token, $device)` — which
+> is what applies the idle timeout, the fingerprint binding and the activity
+> record (`PROJECT_SPECIFICATION` §6.13, AD-013). The middleware was written in
+> an earlier phase and never updated when device sessions landed, so wiring it
+> would have **skipped** those controls: a security regression, not a cleanup.
+>
+> `AuthorizationMiddleware` could not be wired independently — it reads the
+> `auth_user` param that only `AuthMiddleware` sets — and wiring it would also
+> have required a per-route requirement map that the FastRoute registration has
+> no place for.
+>
+> Both files were removed, along with `AuthorizationMiddlewareTest` (6 tests for
+> deleted code — no assertion was weakened; the suite went 587 → **581**, all
+> passing). The middleware layer itself remains: `CorsMiddleware`,
+> `JsonBodyMiddleware`, `MiddlewareInterface`, `MiddlewarePipeline`. There is now
+> exactly one authentication path.
 
 ### F-2 — No user-account provisioning path (OQ-004) — ✅ resolved for local dev in Phase 24
 
@@ -113,11 +134,21 @@ allows "an equivalent Clean Architecture layout"). `scripts/` is unused.
 
 - **Impact:** none. Documented here for locator clarity.
 
-### F-4 — Permissive CORS default
+### F-4 — Permissive CORS default — 🟡 documented in Phase 29; still a deploy-time responsibility
 
 `config/app.php` / `.env.example` default `CORS_ALLOWED_ORIGINS=*`. Acceptable for
 local development; **production must set explicit origins**. Tied to `OQ-007`
 (deployment architecture).
+
+> **Update — 2026-09-02 (Phase 29).** `docs/DEPLOYMENT.md` §5 now states the
+> production requirement explicitly, with the `curl` check that proves an
+> arbitrary `Origin` is not echoed, and recommends serving the web client from
+> the same origin as the API so the question largely disappears. **The default in
+> code is unchanged** — it is still `*` when the variable is unset. This finding
+> is therefore *documented*, not *fixed*: nothing yet prevents a deployment from
+> shipping with a wildcard. The Phase 27 brief recommends converting it into a
+> boot-time guard that refuses to start when `APP_ENV=production` and CORS is
+> `*`; that requires the OQ-007 answer and has not been implemented.
 
 ### F-5 — Web client not implemented — 🟡 **teacher panel built in Phase 25; ADMIN panel still outstanding**
 

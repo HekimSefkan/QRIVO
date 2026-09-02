@@ -24,7 +24,7 @@ use QRIVO\Infrastructure\Repository\UserRepository;
  * - login (credential verification, rate limiting, token issuance)
  * - logout (token revocation)
  * - refresh (refresh token rotation)
- * - token validation (for AuthMiddleware)
+ * - token validation (for BaseController::authenticate())
  *
  * Security (ARCHITECTURE_FREEZE.md §2.3, SECURITY_RULES.md §3):
  * - Argon2id password verification — NEVER plaintext comparison
@@ -352,12 +352,13 @@ final class AuthService extends BaseService
         );
     }
 
-    // ─── Token Validation (for AuthMiddleware) ─────────────────────────────────
+    // ─── Token Validation (for BaseController::authenticate()) ─────────────────
 
     /**
      * Validate an access token and return the user context array.
      *
-     * Used by AuthMiddleware to authenticate protected routes.
+     * Used by BaseController::authenticate(), the single authentication entry
+     * point for every protected route (F-1, Phase 29).
      * Updates last_active_at on success.
      *
      * When a {@see DeviceContext} is supplied, device/session rules are enforced
