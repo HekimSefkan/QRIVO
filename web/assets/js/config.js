@@ -8,8 +8,9 @@
  * Resolution order:
  *   1. ?api=http://host:port     — query override, handy for a quick test
  *   2. localStorage qrivo.apiBase — sticky override, set from the login screen
- *   3. same origin when the page is served by the API itself
- *   4. http://localhost:8000     — the default from backend/README.md
+ *   3. same origin when served over HTTPS from a public host (tunnel/hosting)
+ *   4. same origin when the page is served by the API itself
+ *   5. http://localhost:8000     — the default from backend/README.md
  */
 (function () {
   'use strict';
@@ -32,6 +33,16 @@
       var stored = window.localStorage.getItem(STORAGE_KEY);
       if (stored) return normalise(stored);
     } catch (e) { /* private mode */ }
+
+    // Published on a public host over HTTPS (Tailscale Funnel, or any real
+    // deployment): the API is served from the SAME origin as this page, so the
+    // panel works on any device with nothing typed in. Deliberately excludes
+    // localhost so local development keeps using DEFAULT_BASE below.
+    var host = window.location.hostname;
+    var isLocal = host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]';
+    if (window.location.protocol === 'https:' && !isLocal) {
+      return normalise(window.location.origin);
+    }
 
     // Served by the API itself (rare, but supported).
     if (window.location.port === '8000') return normalise(window.location.origin);

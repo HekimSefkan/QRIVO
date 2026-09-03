@@ -147,3 +147,12 @@ docker-compose.override.yml
 
 # Original specification HTML assets
 ORIGINAL_SPECIFICATION_files/
+
+# ------------------------------------
+# Local runtime (Phase 30) — machine-specific, never committed
+# ------------------------------------
+# Apache writes logs and a pid here when serving QRIVO locally.
+deploy/windows/logs/
+deploy/windows/run/
+# Backups of the local .env contain real DB credentials and the seed password.
+backend/.env.backup-*
