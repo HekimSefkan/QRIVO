@@ -10,7 +10,8 @@
 
 $MYSQLD     = 'C:\laragon\bin\mysql\mysql-8.4.3-winx64\bin\mysqld.exe'
 $TAILSCALE  = 'C:\Program Files\Tailscale\tailscale.exe'
-$PUBLIC_URL = 'https://qrivo.tailbf9d6c.ts.net'
+$PUBLIC_URL  = 'https://qrivo.tailbf9d6c.ts.net'
+$PUBLIC_HOST = 'qrivo.tailbf9d6c.ts.net'
 
 $failed = 0
 
@@ -59,24 +60,73 @@ Report "Teacher panel" $panel.ok `
     "run .\start-qrivo.ps1"
 
 # 4 — Public tunnel
-$tsUp = $false
-$tsDetail = "Tailscale not installed"
-if (Test-Path $TAILSCALE) {
+#
+# IMPORTANT: this machine is INSIDE the tailnet, and the Tailscale Windows
+# client intercepts *.ts.net lookups at the OS level. A plain
+# Invoke-WebRequest to the public URL therefore resolves over MagicDNS to the
+# 100.x tailnet address and NEVER touches the public Funnel path. An earlier
+# version of this script did exactly that and reported a green "UP" while the
+# phone could not connect at all.
+#
+# So we do two things this machine cannot fake:
+#   1. resolve the name via Google DNS-over-HTTPS, which leaves this machine
+#      and cannot be answered by MagicDNS, and
+#   2. reject the answer if it is a CGNAT (100.64.0.0/10) address, because that
+#      is the tailnet address and is not routable from the internet.
+#
+# Even then we only claim "DNS is published correctly". Whether a phone on a
+# mobile network can complete a TLS handshake to those ingress IPs cannot be
+# proven from here, and this script says so rather than guessing.
+$tunnelOk = $false
+$tunnelDetail = "not checked"
+$tunnelFix = "start the Tailscale tray app, then run .\start-qrivo.ps1"
+
+if (-not (Test-Path $TAILSCALE)) {
+    $tunnelDetail = "Tailscale not installed"
+} else {
     $state = (& $TAILSCALE status --json 2>$null | ConvertFrom-Json).BackendState
-    if ($state -eq 'Running') {
-        $pub = TryUrl "$PUBLIC_URL/api/v1/health" 25
-        $tsUp = $pub.ok
-        $tsDetail = if ($pub.ok) { "$($pub.ms) ms  $PUBLIC_URL" } else { "tailnet up but public URL failed - $($pub.err)" }
+    if ($state -ne 'Running') {
+        $tunnelDetail = "Tailscale backend is '$state' (start the tray app)"
     } else {
-        $tsDetail = "Tailscale backend is '$state'"
+        $funnelOn = ((& $TAILSCALE funnel status 2>&1 | Out-String) -match 'Funnel on')
+        if (-not $funnelOn) {
+            $tunnelDetail = "Funnel is not configured on this node"
+            $tunnelFix = "run .\start-qrivo.ps1, or: tailscale funnel --bg --https=443 --set-path=/ http://127.0.0.1:8000"
+        } else {
+            try {
+                $doh = Invoke-RestMethod "https://dns.google/resolve?name=$PUBLIC_HOST&type=A" -TimeoutSec 15
+                $ips = @($doh.Answer | Where-Object { $_.type -eq 1 } | Select-Object -ExpandProperty data)
+                if (-not $ips) {
+                    $tunnelDetail = "public DNS has no A record for $PUBLIC_HOST"
+                    $tunnelFix = "re-enable Funnel: https://login.tailscale.com/admin/settings/general"
+                } else {
+                    $cgnat = @($ips | Where-Object { $_ -match '^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.' })
+                    if ($cgnat.Count -eq $ips.Count) {
+                        $tunnelDetail = "public DNS returns only the tailnet address ($($ips -join ', ')) - NOT public"
+                        $tunnelFix = "Funnel is not published. Enable it at https://login.tailscale.com/admin/settings/general"
+                    } else {
+                        $tunnelOk = $true
+                        $tunnelDetail = "published publicly -> $($ips -join ', ')"
+                    }
+                }
+            } catch {
+                $tunnelDetail = "could not verify externally: $($_.Exception.Message.Split([Environment]::NewLine)[0])"
+                $tunnelFix = "check this machine has internet access, then re-run"
+            }
+        }
     }
 }
-Report "Public tunnel" $tsUp $tsDetail `
-    "start the Tailscale tray app, then run .\start-qrivo.ps1 ; check with: tailscale funnel status"
+Report "Public DNS" $tunnelOk $tunnelDetail $tunnelFix
 
 Write-Host ""
+Write-Host "  NOTE: this machine is inside the tailnet, so it CANNOT prove that a" -ForegroundColor DarkGray
+Write-Host "        phone on mobile data can reach the API. The only real test is:" -ForegroundColor DarkGray
+Write-Host "        turn Wi-Fi OFF on the phone and open" -ForegroundColor DarkGray
+Write-Host "        https://$PUBLIC_HOST/panel/probe.txt" -ForegroundColor DarkGray
+Write-Host ""
 if ($failed -eq 0) {
-    Write-Host "  All four are up. Phone URL: $PUBLIC_URL" -ForegroundColor Green
+    Write-Host "  Local stack is up and public DNS is published." -ForegroundColor Green
+    Write-Host "  This is NOT proof the phone can connect - use the probe URL above." -ForegroundColor Yellow
     Write-Host ""
     exit 0
 } else {
