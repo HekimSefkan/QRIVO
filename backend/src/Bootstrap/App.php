@@ -43,6 +43,7 @@ final class App
     {
         $this->loadEnvironment();
         $this->config           = new Config($this->basePath);
+        $this->applyTimezone();
         $this->logger           = new Logger($this->config);
         $this->exceptionHandler = new ExceptionHandler($this->logger);
         $this->db               = new Connection($this->config);
@@ -109,5 +110,34 @@ final class App
     public function getRouter(): Router
     {
         return $this->router;
+    }
+
+    /**
+     * Apply the configured application timezone to PHP.
+     *
+     * `config/app.php` has always READ `APP_TIMEZONE`, but nothing ever called
+     * date_default_timezone_set(), so the value was dead: PHP silently used its
+     * php.ini default (UTC) while MySQL's own clock ran on the machine's local
+     * time. That left the two halves of the application three hours apart on a
+     * UTC+3 machine -- `CURRENT_TIMESTAMP` column defaults and SQL NOW() used
+     * local time while every PHP-written timestamp used UTC.
+     *
+     * Setting it here, in the composition root before anything else runs, means
+     * every `new DateTimeImmutable('now')` in the application agrees with the
+     * database (see Connection::alignSessionTimezone()).
+     *
+     * An invalid identifier is a configuration error, not a runtime condition:
+     * we fall back to UTC rather than let PHP emit a warning and carry on with
+     * an unknown clock.
+     */
+    private function applyTimezone(): void
+    {
+        $tz = $this->config->getString('app.timezone', 'UTC');
+
+        if ($tz === '' || !in_array($tz, \DateTimeZone::listIdentifiers(), true)) {
+            $tz = 'UTC';
+        }
+
+        date_default_timezone_set($tz);
     }
 }

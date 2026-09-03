@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace QRIVO\Tests\Unit\Application\Service;
 
+use DateTimeImmutable;
+use DateTimeZone;
 use PHPUnit\Framework\TestCase;
 use QRIVO\Application\Service\AttendanceEligibilityService;
 use QRIVO\Domain\Contract\LoggerInterface;
@@ -149,5 +151,134 @@ final class AttendanceEligibilityServiceTest extends TestCase
         $result2 = $this->service()->forTeacher($this->teacherActor(), $this->ids['classId'], $this->ids['courseId'], null, $this->monday10());
         $this->assertFalse($result2->isAuthorized());
         $this->assertSame(AttendanceEligibilityReason::NO_ACTIVE_TERM, $result2->reason);
+    }
+
+    // ─── Schedule-window boundaries (Phase 30) ──────────────────────────────
+    //
+    // The window is INCLUSIVE at both ends: ScheduleRepository::findCoveringSchedule
+    // matches on `start_time <= t AND end_time >= t`. These four tests pin that
+    // contract to the second, so a future change to the comparison (or to the
+    // application timezone) cannot silently move the boundary.
+    //
+    // The fixture schedule is Monday 09:00:00-11:00:00 (see fullyScheduled()).
+
+    public function test_denied_one_second_before_the_lesson_starts(): void
+    {
+        $this->fullyScheduled();
+        $result = $this->service()->forTeacher(
+            $this->teacherActor(),
+            $this->ids['classId'],
+            $this->ids['courseId'],
+            $this->ids['termId'],
+            new \DateTimeImmutable('2026-01-05 08:59:59'), // Monday
+        );
+
+        $this->assertFalse($result->isAuthorized());
+        $this->assertSame(AttendanceEligibilityReason::OUTSIDE_SCHEDULED_TIME, $result->reason);
+    }
+
+    public function test_authorized_exactly_at_the_start_second(): void
+    {
+        $this->fullyScheduled();
+        $result = $this->service()->forTeacher(
+            $this->teacherActor(),
+            $this->ids['classId'],
+            $this->ids['courseId'],
+            $this->ids['termId'],
+            new \DateTimeImmutable('2026-01-05 09:00:00'),
+        );
+
+        $this->assertTrue($result->isAuthorized(), 'the start second is inside the window');
+    }
+
+    public function test_authorized_exactly_at_the_end_second(): void
+    {
+        $this->fullyScheduled();
+        $result = $this->service()->forTeacher(
+            $this->teacherActor(),
+            $this->ids['classId'],
+            $this->ids['courseId'],
+            $this->ids['termId'],
+            new \DateTimeImmutable('2026-01-05 11:00:00'),
+        );
+
+        $this->assertTrue($result->isAuthorized(), 'the end second is inside the window');
+    }
+
+    public function test_denied_one_second_after_the_lesson_ends(): void
+    {
+        $this->fullyScheduled();
+        $result = $this->service()->forTeacher(
+            $this->teacherActor(),
+            $this->ids['classId'],
+            $this->ids['courseId'],
+            $this->ids['termId'],
+            new \DateTimeImmutable('2026-01-05 11:00:01'),
+        );
+
+        $this->assertFalse($result->isAuthorized());
+        $this->assertSame(AttendanceEligibilityReason::OUTSIDE_SCHEDULED_TIME, $result->reason);
+    }
+
+    /**
+     * The timezone that "now" is constructed in is LOAD-BEARING.
+     *
+     * course_schedules stores wall-clock time, and the service compares it with
+     * $at->format('H:i:s') -- which reads $at in ITS OWN zone. So the same
+     * instant produces different verdicts depending on the zone it was built in.
+     *
+     * That is precisely the Phase 30 defect: config/app.php read APP_TIMEZONE but
+     * nothing ever called date_default_timezone_set(), so `new
+     * DateTimeImmutable('now')` at every call site was UTC while the machine and
+     * MySQL ran on UTC+3. A 12:30 lesson was evaluated as 09:30 and refused.
+     *
+     * This test pins the consequence rather than restating format()'s contract:
+     * one instant, two zones, two different answers. If it ever stops holding,
+     * the comparison has changed and the bootstrap guarantee below matters less.
+     */
+    public function test_the_timezone_of_now_changes_the_verdict_for_the_same_instant(): void
+    {
+        $this->fullyScheduled();
+
+        // One instant: 09:30 Istanbul == 06:30 UTC.
+        $asIstanbul = new DateTimeImmutable('2026-01-05 09:30:00', new DateTimeZone('Europe/Istanbul'));
+        $sameInstantAsUtc = $asIstanbul->setTimezone(new DateTimeZone('UTC'));
+
+        self::assertSame(
+            $asIstanbul->getTimestamp(),
+            $sameInstantAsUtc->getTimestamp(),
+            'precondition: these must be the same moment in time',
+        );
+
+        $inZone = $this->service()->forTeacher(
+            $this->teacherActor(), $this->ids['classId'], $this->ids['courseId'], $this->ids['termId'], $asIstanbul,
+        );
+        $inUtc = $this->service()->forTeacher(
+            $this->teacherActor(), $this->ids['classId'], $this->ids['courseId'], $this->ids['termId'], $sameInstantAsUtc,
+        );
+
+        self::assertTrue($inZone->isAuthorized(), '09:30 Istanbul is inside the 09:00-11:00 window');
+        self::assertFalse($inUtc->isAuthorized(), 'the same instant read as 06:30 UTC falls outside it');
+        self::assertSame(AttendanceEligibilityReason::OUTSIDE_SCHEDULED_TIME, $inUtc->reason);
+    }
+
+    /**
+     * The bootstrap guarantee: the configured timezone is a real, applicable
+     * identifier. Without this, the test above is a curiosity; with it, every
+     * call site writing `new DateTimeImmutable('now')` lands in the app's zone.
+     */
+    public function test_configured_timezone_is_a_real_identifier(): void
+    {
+        $config = new \QRIVO\Infrastructure\Config\Config(QRIVO_ROOT);
+        $configured = $config->getString('app.timezone', 'UTC');
+
+        self::assertContains(
+            $configured,
+            \DateTimeZone::listIdentifiers(),
+            'APP_TIMEZONE must be a valid IANA identifier, not an abbreviation or a raw offset',
+        );
+
+        // And it must be applicable without PHP emitting a warning.
+        self::assertTrue(date_default_timezone_set($configured));
     }
 }
