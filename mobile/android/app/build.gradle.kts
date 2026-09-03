@@ -1,8 +1,28 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+// ── Release signing ─────────────────────────────────────────────────────────
+// The keystore and its passwords live OUTSIDE this repository and are never
+// committed. The path to key.properties comes from the QRIVO_KEY_PROPERTIES
+// environment variable; android/key.properties is a fallback for other
+// developers. When neither is present the release build falls back to debug
+// signing, so CI and anyone without the production key can still build.
+val qrivoKeyPropsFile: File? =
+    (System.getenv("QRIVO_KEY_PROPERTIES")?.let { File(it) }
+        ?: rootProject.file("key.properties"))
+        .takeIf { it.exists() }
+
+val qrivoKeyProps = Properties().apply {
+    qrivoKeyPropsFile?.let { f -> FileInputStream(f).use { load(it) } }
+}
+
+val hasReleaseSigning = qrivoKeyProps.getProperty("storeFile") != null
 
 android {
     namespace = "com.qrivo.qrivo_mobile"
@@ -38,11 +58,26 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile     = file(qrivoKeyProps.getProperty("storeFile"))
+                storePassword = qrivoKeyProps.getProperty("storePassword")
+                keyAlias      = qrivoKeyProps.getProperty("keyAlias")
+                keyPassword   = qrivoKeyProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // Signed with the real release key when key.properties is available,
+            // otherwise with the debug key so the build still succeeds.
+            signingConfig = if (hasReleaseSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }

@@ -95,6 +95,25 @@ class AuthController extends ChangeNotifier {
     return refreshed?.accessToken;
   }
 
+  /// Called when the app comes back to the foreground.
+  ///
+  /// While backgrounded the access token may have expired and the OS may have
+  /// torn down the keep-alive socket. Without this, the first screen the
+  /// student touches absorbs both problems and reports a network error.
+  /// Refreshing here proactively means the next real request starts from a
+  /// known-good session.
+  ///
+  /// This makes no security decision: it asks the SERVER for a fresh token and
+  /// believes whatever the server says. A network failure deliberately leaves
+  /// the session alone — being briefly offline is not proof of being signed
+  /// out, and only the server may end a session.
+  Future<void> revalidateOnResume() async {
+    final session = _session;
+    if (session == null || _status != AuthStatus.authenticated) return;
+    if (!session.needsRefresh && !session.isAccessTokenExpired) return;
+    await _refresh();
+  }
+
   Future<Session?> _refresh() {
     final existing = _refreshInFlight;
     if (existing != null) return existing.future;

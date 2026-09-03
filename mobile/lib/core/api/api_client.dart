@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show SocketException, HandshakeException;
 
 import 'package:http/http.dart' as http;
 
@@ -67,14 +68,9 @@ class ApiClient {
 
     http.Response response;
     try {
-      final request = http.Request(method, uri)..headers.addAll(headers);
-      if (body != null) request.body = jsonEncode(body);
-      final streamed = await _http.send(request).timeout(AppConfig.requestTimeout);
-      response = await http.Response.fromStream(streamed);
-    } on TimeoutException {
-      throw ApiException.network();
-    } catch (_) {
-      throw ApiException.network();
+      response = await _sendWithRetries(method, uri, headers, body);
+    } on ApiException {
+      rethrow;
     }
 
     if (response.statusCode == 401 && !isRetry && _onUnauthorized != null) {
@@ -89,9 +85,97 @@ class ApiClient {
           bearerOverride: refreshed,
         );
       }
+      // The server rejected the token and the auth layer could not mint a new
+      // one. The SERVER made that call; we only translate it into a message a
+      // student can act on instead of a generic network error.
+      throw ApiException.sessionExpired();
     }
 
     return _decode(response);
+  }
+
+  /// Issue the request, retrying ONLY when it is safe to do so.
+  ///
+  /// Safety rule: a retry is only attempted for **idempotent** methods (GET).
+  /// A POST is never retried — re-sending an attendance submission or a
+  /// challenge response could duplicate it, and the fact that the server also
+  /// defends against duplicates is not a reason for the client to create them.
+  ///
+  /// This exists because the first request after the app returns from the
+  /// background very often rides a keep-alive socket the OS has already torn
+  /// down. That single failure is what surfaced as "Could not reach the
+  /// server"; one quick retry makes it invisible.
+  Future<http.Response> _sendWithRetries(
+    String method,
+    Uri uri,
+    Map<String, String> headers,
+    Object? body,
+  ) async {
+    final canRetry = method == 'GET';
+    const backoff = <Duration>[
+      Duration(milliseconds: 300),
+      Duration(milliseconds: 900),
+    ];
+
+    var attempt = 0;
+    while (true) {
+      try {
+        final request = http.Request(method, uri)..headers.addAll(headers);
+        if (body != null) request.body = jsonEncode(body);
+        final streamed =
+            await _http.send(request).timeout(AppConfig.requestTimeout);
+        return await http.Response.fromStream(streamed);
+      } catch (error) {
+        final failure = _classify(error);
+
+        if (canRetry && failure.isRetryable && attempt < backoff.length) {
+          await Future<void>.delayed(backoff[attempt]);
+          attempt++;
+          continue;
+        }
+        throw failure;
+      }
+    }
+  }
+
+  /// Map a transport-level error to a specific, honest failure.
+  ///
+  /// Presentation only — nothing here grants or denies anything.
+  ApiException _classify(Object error) {
+    if (error is TimeoutException) return ApiException.timeout();
+
+    if (error is SocketException) {
+      // No route / DNS failure means this phone has no working connection.
+      final code = error.osError?.errorCode;
+      final looksOffline = error.osError == null ||
+          code == 7 || // no address associated with hostname
+          code == 11001 || // WSAHOST_NOT_FOUND
+          code == 101 || // network unreachable
+          code == 110; // connection timed out at the OS
+      return looksOffline
+          ? ApiException.offline()
+          : ApiException.unreachable();
+    }
+
+    if (error is http.ClientException) {
+      // package:http's IOClient wraps SocketException in a ClientException and
+      // drops the cause, so the message is the only signal left. A DNS failure
+      // means this phone has no usable connection; anything else is most often
+      // "Connection closed before full header was received" — a dead
+      // keep-alive socket after resume, which is exactly what a retry fixes.
+      final m = error.message.toLowerCase();
+      final looksOffline = m.contains('failed host lookup') ||
+          m.contains('no address associated with hostname') ||
+          m.contains('network is unreachable') ||
+          m.contains('nodename nor servname');
+      return looksOffline
+          ? ApiException.offline()
+          : ApiException.unreachable();
+    }
+
+    if (error is HandshakeException) return ApiException.unreachable();
+
+    return ApiException.unreachable();
   }
 
   ApiResponse _decode(http.Response response) {

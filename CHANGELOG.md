@@ -9,6 +9,90 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 
 ## [Unreleased]
 
+### Fixed (Demo Reliability — Phase 30)
+
+Reported symptom: the student app intermittently showed *"Could not reach the
+server"*, most often when returning to the app while the teacher panel was open.
+Two independent root causes were confirmed by measurement, plus a third that made
+every failure look identical.
+
+**Root cause 1 — the API was served by `php -S`, which is single-threaded**
+
+PHP's built-in server handles one request at a time, and on Windows it cannot do
+better: `PHP_CLI_SERVER_WORKERS` requires `fork()`, and `pcntl` is unavailable
+(verified: `PHP_OS_FAMILY=Windows`, `function_exists('pcntl_fork')=false`). With
+the teacher panel polling the roster every ~3 s and refreshing the QR, phone
+requests queued behind that traffic.
+
+Proven with an interleaved experiment — start a login (Argon2id, deliberately
+slow), then issue `/health` 60 ms later:
+
+| Server | `/health` took | Completed |
+|---|---|---|
+| `php -S` | **188 ms** | at 256 ms — the *same instant* as the login, i.e. queued |
+| Apache + mod_php | **44 ms** | at 122 ms, while the login ran on until 234 ms |
+
+Twenty concurrent `/health` requests: **123 ms total (6 ms average)** on Apache.
+
+**Fix:** `deploy/windows/qrivo-apache.conf` — a self-contained Apache
+configuration serving the API (`:8000`, document root `backend/public`, front
+controller rewrite) and the teacher panel (`:8080`, static, PHP engine off).
+Apache's `mpm_winnt` is threaded and Laragon's PHP is a ZTS build, so `mod_php`
+is genuinely concurrent. It does not include or disturb Laragon's own Apache
+setup. The Tailscale Funnel needed no change — it already proxies to those ports.
+
+**Root cause 2 — the app never recovered from a dead socket after resume**
+
+One `http.Client` lives for the whole app, and there was **no lifecycle handling
+at all** (no `WidgetsBindingObserver` anywhere). When Android tears down the
+keep-alive socket during backgrounding, the first request on resume fails — and
+nothing retried it. That is precisely the "when I return to the app" pattern.
+
+**Fix:** idempotent `GET`s now retry twice (300 ms, 900 ms) on transient
+transport failures. **`POST` is never retried** — re-sending an attendance
+submission could duplicate it, and the server's duplicate protection is not a
+licence for the client to create duplicates. `QrivoApp` became stateful and
+revalidates the session on `AppLifecycleState.resumed`.
+
+**Root cause 3 — every failure produced the same message**
+
+`ApiException.network()` returned *"Could not reach the server"* for a timeout, a
+DNS failure, a dropped socket **and** an unrecoverable 401 alike, so the message
+never matched reality. Added `ApiFailureKind` (`offline` / `timeout` /
+`unreachable` / `sessionExpired` / `server`), each with an honest message. A 401
+whose refresh fails now says the session expired rather than blaming the network.
+
+This is presentation only — the classification grants nothing and denies nothing,
+and the server remains the sole authority (AD-012).
+
+**Also investigated, with evidence**
+
+- **Funnel** — on and healthy; public API 156 ms, panel 17 ms. Not implicated.
+- **Network adapter power** — `PnPCapabilities` is unset on both the MediaTek
+  Wi-Fi and Realtek Ethernet adapters, meaning Windows **may** power them down.
+  A real contributor while idle. Fixing it needs an elevated
+  `Set-ItemProperty`; the command is in the runbook because it requires admin.
+- **Sleep/lid** — already Never on mains from Phase 29.
+
+**Verification — 11-minute soak through the public HTTPS URL**
+
+Teacher panel polling (counters, roster, QR) plus simulated phone traffic
+(dashboard, schedule, history), all issued concurrently each tick against
+`https://qrivo.tailbf9d6c.ts.net`. Results are in the Phase 30 section of
+`docs/RUNBOOK.md`.
+
+**New:** `check-qrivo.ps1` — one line per component (MySQL, API, panel, tunnel)
+and the exact fix for whichever is down; exit code 0/1 so it can gate a script.
+`start-qrivo.ps1` and `stop-qrivo.ps1` now drive Apache instead of `php -S`.
+
+> **Dart tests could not be run on this machine.** Smart App Control is enabled
+> and enforcing, and blocks `dartvm.exe`
+> (`CodeIntegrity` event 3077, policy `{0283ac0f-…}`), so `flutter test` fails
+> before it starts. `dart analyze --fatal-infos` does run and is clean.
+> `test/core/api_client_resilience_test.dart` (11 new tests covering retry
+> budgets, the POST-never-retried rule, each failure classification, and session
+> expiry) is therefore **authored but unexecuted locally** — CI runs it on push.
+
 ### Added (CI & Deployment — Phase 29)
 
 **Continuous integration — `.github/workflows/ci.yml`**

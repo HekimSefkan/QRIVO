@@ -10,7 +10,7 @@ import 'features/home/home_shell.dart';
 
 /// Wires the object graph and swaps between the login screen and the home shell
 /// based on [AuthController.status]. All state is provided, not global.
-class QrivoApp extends StatelessWidget {
+class QrivoApp extends StatefulWidget {
   const QrivoApp({
     super.key,
     required this.authController,
@@ -21,7 +21,39 @@ class QrivoApp extends StatelessWidget {
   final http.Client httpClient;
 
   @override
+  State<QrivoApp> createState() => _QrivoAppState();
+}
+
+class _QrivoAppState extends State<QrivoApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// Returning from the background is the moment both problems bite at once:
+  /// the access token may have expired, and the OS has usually dropped the
+  /// keep-alive socket. Revalidating here means the first screen the student
+  /// touches starts from a known-good session instead of absorbing the failure.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Fire and forget: it must never block the UI, and a failure here is not
+      // fatal — the request path still refreshes on a 401 as before.
+      widget.authController.revalidateOnResume();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final authController = widget.authController;
+    final httpClient = widget.httpClient;
     return MultiProvider(
       providers: [
         ChangeNotifierProvider.value(value: authController),

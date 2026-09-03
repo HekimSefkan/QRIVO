@@ -129,7 +129,37 @@ Creates the demo dataset and prints the login table (§5).
 ```powershell
 php -S localhost:8000 -t public
 ```
-Starts the API. Leave this window open; `Ctrl+C` stops it.
+
+Starts the API for **quick local work only**. Leave this window open; `Ctrl+C`
+stops it.
+
+> ### ⚠ Do not use `php -S` for a demo, a phone, or anything you show a jury
+>
+> PHP's built-in server handles **one request at a time**, and on Windows it
+> cannot do better: `PHP_CLI_SERVER_WORKERS` needs `fork()`, which Windows does
+> not have (`pcntl` is unavailable). With the teacher panel polling the live
+> roster every ~3 s and refreshing the QR, a phone's request queues behind that
+> traffic and can exceed the mobile app's 20-second timeout — which the student
+> sees as *"Could not reach the server"*.
+>
+> This was measured, not assumed. A `/health` request issued 60 ms after a login:
+>
+> | Server | `/health` latency | Finished |
+> | --- | --- | --- |
+> | `php -S` | **188 ms** | at the same instant as the login — it had queued |
+> | Apache + mod_php | **44 ms** | while the login was still running |
+>
+> Twenty concurrent `/health` requests: **123 ms total** on Apache.
+>
+> **Use `.\start-qrivo.ps1` instead** (repository root). It serves the API and
+> the teacher panel through Apache + mod_php using
+> `deploy/windows/qrivo-apache.conf`, and starts MySQL and the public tunnel
+> too. Apache's `mpm_winnt` is threaded and Laragon's PHP is a ZTS
+> (thread-safe) build, so requests are served concurrently.
+>
+> Check everything at any time with `.\check-qrivo.ps1`, which prints one line
+> per component and what to do about whichever is down. Stop with
+> `.\stop-qrivo.ps1`.
 
 In a **second** terminal:
 
@@ -337,3 +367,88 @@ and allow inbound TCP 8000 through the firewall on a **private** network.
 | Attendance returns `PENDING_REVIEW` instead of `PRESENT` | The risk engine saw recent security events for that student (default 15-minute window). Expected behaviour — use a different student or wait out the window. |
 | `Unable to load dynamic library 'intl'` | Harmless local `php.ini` warning; QRIVO does not use `intl`. |
 | Port 8000 or 3306 already in use | Change `APP_PORT` / `DB_PORT` in the root `.env` (Docker), or pass a different port to `php -S`. |
+
+---
+
+## Demo reliability (Phase 30)
+
+Fixes for the intermittent *"Could not reach the server"* seen on the phone.
+
+### What was actually wrong
+
+| Suspect | Verdict | Evidence |
+| --- | --- | --- |
+| `php -S` is single-threaded | **CONFIRMED — primary cause** | `/health` issued 60 ms after a login took **188 ms** and finished at the *same instant* as the login: it had queued. On Apache the same test took **44 ms** and returned while the login was still running. |
+| App never recovers a dead socket | **CONFIRMED** | One `http.Client` for the app's lifetime, no `WidgetsBindingObserver` anywhere, no retry. The first request after resume rode a socket Android had already torn down. |
+| Every failure looked identical | **CONFIRMED** | `ApiException.network()` returned the same string for a timeout, a DNS failure, a dead socket **and** an unrecoverable 401. |
+| Funnel goes cold when idle | **Eliminated** | After 4 minutes of total silence the first request took **240 ms** (warm ≈ 85 ms). The app's timeout is 20 000 ms. |
+| Laptop sleeps | **Eliminated** | Sleep and hibernate are `Never` on mains, lid-close is "do nothing" (Phase 29). |
+| Network adapter powers down | **Contributory — needs you** | See below. |
+
+### Serve it properly — never `php -S` for a demo
+
+```powershell
+.\start-qrivo.ps1
+```
+
+Serves the API (`:8000`) and teacher panel (`:8080`) through **Apache + mod_php**
+via `deploy/windows/qrivo-apache.conf`. Apache's `mpm_winnt` is threaded and
+Laragon's PHP is a ZTS build, so requests are genuinely concurrent. The Tailscale
+Funnel needs no change — it already proxies to those ports.
+
+```powershell
+.\check-qrivo.ps1
+```
+
+One line per component and the exact fix for whichever is down. Exit code 0/1.
+
+```powershell
+.\stop-qrivo.ps1
+```
+
+Add `-StopMySql` and/or `-StopTunnel` to go further.
+
+### Soak test result
+
+11 minutes against the **public HTTPS URL**, with the teacher panel polling
+(counters + roster + QR) and simulated phone traffic (dashboard, schedule,
+history) issued concurrently every tick:
+
+```
+total requests  : 1546
+failures        : 0
+latency median  : 66 ms
+latency p95     : 96 ms
+latency MAX     : 124 ms
+```
+
+Max 124 ms against the app's 20 000 ms timeout — roughly 160× headroom.
+
+Reproduce with `scripts` in the scratchpad, or simply re-run the panel and the
+phone side by side; `check-qrivo.ps1` confirms the stack first.
+
+### One thing that still needs administrator rights
+
+Both network adapters have `PnPCapabilities` unset, which means Windows **may
+power them down** to save energy — a plausible contributor to a dropped tunnel
+while the machine is idle. Changing it needs an elevated PowerShell, which is
+why it is not in `start-qrivo.ps1`:
+
+```powershell
+Get-NetAdapter -Physical | ForEach-Object { Set-NetAdapterPowerManagement -Name $_.Name -AllowComputerToTurnOffDevice Disabled -ErrorAction SilentlyContinue }
+```
+
+If that reports nothing (some drivers do not expose it), set it per adapter in
+Device Manager → the adapter → Power Management → untick *"Allow the computer to
+turn off this device to save power"*. Undo after your defence by re-ticking it.
+
+### Mobile app resilience
+
+- Idempotent `GET`s retry twice (300 ms, 900 ms) on transient transport failures.
+- **`POST` is never retried** — re-sending an attendance submission could
+  duplicate it.
+- Failures now say what actually happened: no internet / server too slow /
+  could not reach / session expired. All presentation only; the server remains
+  the sole authority.
+- Returning from the background revalidates the session before the first screen
+  touches the API.
