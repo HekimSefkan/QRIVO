@@ -35,7 +35,21 @@ function qrivo_config(): Config
 {
     static $config = null;
 
-    return $config ??= new Config(QRIVO_ROOT);
+    if ($config === null) {
+        $config = new Config(QRIVO_ROOT);
+
+        // Same reason as BootstrapApp::applyTimezone(): the CLI scripts do not
+        // go through the composition root, so without this they would run on
+        // php.ini's default (UTC) while the web app runs on Europe/Istanbul --
+        // and seed.php would compute the demo lesson window in the wrong zone.
+        $tz = $config->getString('app.timezone', 'UTC');
+        if ($tz === '' || !in_array($tz, DateTimeZone::listIdentifiers(), true)) {
+            $tz = 'UTC';
+        }
+        date_default_timezone_set($tz);
+    }
+
+    return $config;
 }
 
 // ─── console helpers ────────────────────────────────────────────────────────
@@ -174,7 +188,7 @@ function qrivo_database_pdo(): PDO
     );
 
     try {
-        return new PDO(
+        $pdo = new PDO(
             $dsn,
             $config->getString('database.username'),
             $config->getString('database.password'),
@@ -184,6 +198,15 @@ function qrivo_database_pdo(): PDO
                 PDO::ATTR_EMULATE_PREPARES   => false,
             ],
         );
+
+        // Match Connection::alignSessionTimezone() so seed.php computes the demo
+        // lesson window against the same clock the API will evaluate it with.
+        if ($config->getString('database.driver', 'mysql') === 'mysql') {
+            $pdo->prepare('SET time_zone = :offset')
+                ->execute(['offset' => (new DateTimeImmutable('now'))->format('P')]);
+        }
+
+        return $pdo;
     } catch (PDOException $e) {
         qrivo_abort(
             "Cannot open database '{$name}'. Run `php scripts/migrate.php` first."
@@ -193,3 +216,10 @@ function qrivo_database_pdo(): PDO
 }
 
 qrivo_load_env();
+
+// Resolve configuration immediately on include. This is what APPLIES
+// APP_TIMEZONE (see qrivo_config()), and it must happen before any script reads
+// the clock -- smoke_test.php calls date('H:i:s') to find the live schedule
+// slot, and with a lazy timezone it read UTC while the schedule was stored in
+// local wall-clock time, so it found no covering slot.
+qrivo_config();

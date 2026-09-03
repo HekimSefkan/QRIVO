@@ -60,7 +60,10 @@ final class Connection
         );
 
         try {
-            return new PDO($dsn, $username, $password, $options);
+            $pdo = new PDO($dsn, $username, $password, $options);
+            $this->alignSessionTimezone($pdo, $driver);
+
+            return $pdo;
         } catch (PDOException $e) {
             // Do NOT expose database credentials or connection details in exceptions
             throw new RuntimeException(
@@ -184,5 +187,38 @@ final class Connection
     public function lastInsertId(): string
     {
         return $this->getPdo()->lastInsertId();
+    }
+
+    /**
+     * Make MySQL's clock agree with PHP's for this connection.
+     *
+     * Several columns default to CURRENT_TIMESTAMP and BaseRepository::softDelete
+     * writes NOW(); those use the DATABASE server's timezone, while every other
+     * timestamp in the application is written by PHP. On a machine whose system
+     * clock is not UTC those two disagree -- measured at exactly three hours on
+     * the development machine (PHP 10:38 UTC vs MySQL NOW() 13:38 local), which
+     * makes any comparison between a PHP-written and a DB-written timestamp
+     * quietly wrong.
+     *
+     * A NUMERIC offset is used rather than a named zone on purpose: named zones
+     * require MySQL's timezone tables to be populated (mysql_tzinfo_to_sql),
+     * which is not the case on a default Windows install, and `SET time_zone =
+     * 'Europe/Istanbul'` would fail there. The offset is recomputed on every
+     * connection from PHP's own current time, so a DST transition is picked up
+     * on the next connect.
+     *
+     * SQLite has no session timezone and is only used by the test suite, so it
+     * is skipped.
+     */
+    private function alignSessionTimezone(PDO $pdo, string $driver): void
+    {
+        if ($driver !== 'mysql') {
+            return;
+        }
+
+        $offset = (new \DateTimeImmutable('now'))->format('P'); // e.g. "+03:00"
+
+        $statement = $pdo->prepare('SET time_zone = :offset');
+        $statement->execute(['offset' => $offset]);
     }
 }
