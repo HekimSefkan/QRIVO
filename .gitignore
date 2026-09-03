@@ -156,3 +156,6 @@ deploy/windows/logs/
 deploy/windows/run/
 # Backups of the local .env contain real DB credentials and the seed password.
 backend/.env.backup-*
+# Reachability probe tokens written during tunnel diagnosis — not source.
+web/probe.txt
+backend/public/probe.txt
