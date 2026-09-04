@@ -15,6 +15,10 @@ typedef TokenProvider = FutureOr<String?> Function();
 /// one-shot refresh. Returns the fresh token, or null if the session is dead.
 typedef UnauthorizedHandler = Future<String?> Function();
 
+/// Re-resolves the API address. Returns true when a DIFFERENT address was
+/// learned, meaning the failed request is worth retrying.
+typedef AddressRecoveryHandler = Future<bool> Function();
+
 /// Thin REST client for the QRIVO API.
 ///
 /// Responsibilities (presentation-layer only — NO security decisions):
@@ -35,6 +39,15 @@ class ApiClient {
   final http.Client _http;
   final TokenProvider _tokenProvider;
   final UnauthorizedHandler? _onUnauthorized;
+
+  /// Called when the API address itself appears dead (unreachable, as opposed
+  /// to this phone being offline). Should re-read the published config and
+  /// return true when it learned a DIFFERENT address, in which case the request
+  /// is retried once against the new one.
+  ///
+  /// This is what makes the app heal itself after the laptop restarts and the
+  /// tunnel gets a new hostname, with nobody rebuilding the APK.
+  AddressRecoveryHandler? onAddressStale;
 
   Future<ApiResponse> get(String path, {Map<String, dynamic>? query}) =>
       _send('GET', path, query: query);
@@ -64,20 +77,36 @@ class ApiClient {
       'Accept': 'application/json',
       if (body != null) 'Content-Type': 'application/json',
       if (token != null) 'Authorization': 'Bearer $token',
-      // The API is published through an ngrok tunnel. On the free plan ngrok
-      // serves a browser interstitial before the real response, which would
-      // reach this client as HTML where JSON is expected. Sending this header
-      // suppresses it. It carries no authority: the server still authenticates
-      // and authorizes every request exactly as before, and sending it to a
-      // non-ngrok host is simply an ignored header.
-      'ngrok-skip-browser-warning': 'true',
     };
 
     http.Response response;
     try {
       response = await _sendWithRetries(method, uri, headers, body);
-    } on ApiException {
-      rethrow;
+    } on ApiException catch (error) {
+      // The address we have looks dead — not "this phone is offline", which no
+      // amount of re-resolving would fix. Re-read the published config; if it
+      // now names a DIFFERENT address, the laptop restarted and the tunnel
+      // moved, so try once against the new one.
+      //
+      // Deliberately not attempted for a body-carrying method: recovering a
+      // POST here would re-send it to a second host, and an attendance
+      // submission must never be duplicated.
+      final recoverable = error.kind == ApiFailureKind.unreachable &&
+          !isRetry &&
+          body == null &&
+          onAddressStale != null;
+
+      if (!recoverable) rethrow;
+
+      final moved = await onAddressStale!();
+      if (!moved) rethrow;
+
+      response = await _sendWithRetries(
+        method,
+        AppConfig.endpoint(path, query), // recomputed against the new address
+        headers,
+        body,
+      );
     }
 
     if (response.statusCode == 401 && !isRetry && _onUnauthorized != null) {

@@ -80,7 +80,7 @@ void main() {
       expect(
         () => EndpointConfig.parse(doc('https://evil.example')),
         throwsA(isA<EndpointConfigException>()
-            .having((e) => e.failure, 'failure', EndpointFailure.configRejected)),
+            .having((e) => e.failure, 'failure', EndpointFailure.configRejected),),
       );
     });
 
@@ -88,7 +88,7 @@ void main() {
       expect(
         () => EndpointConfig.parse('<html>404</html>'),
         throwsA(isA<EndpointConfigException>()
-            .having((e) => e.failure, 'failure', EndpointFailure.configMalformed)),
+            .having((e) => e.failure, 'failure', EndpointFailure.configMalformed),),
       );
     });
 
@@ -96,7 +96,7 @@ void main() {
       expect(
         () => EndpointConfig.parse('{"generated_at":"2026-09-04T10:00:00Z"}'),
         throwsA(isA<EndpointConfigException>()
-            .having((e) => e.failure, 'failure', EndpointFailure.configMalformed)),
+            .having((e) => e.failure, 'failure', EndpointFailure.configMalformed),),
       );
     });
   });

@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'core/api/api_client.dart';
 import 'core/api/student_api.dart';
 import 'core/auth/auth_controller.dart';
+import 'core/config/endpoint_resolver.dart';
 import 'features/auth/login_screen.dart';
 import 'features/home/home_shell.dart';
 
@@ -15,10 +16,15 @@ class QrivoApp extends StatefulWidget {
     super.key,
     required this.authController,
     required this.httpClient,
+    this.endpointResolver,
   });
 
   final AuthController authController;
   final http.Client httpClient;
+
+  /// Resolves the API address at runtime. Null in tests and in builds that use
+  /// a compile-time address.
+  final EndpointResolver? endpointResolver;
 
   @override
   State<QrivoApp> createState() => _QrivoAppState();
@@ -58,11 +64,26 @@ class _QrivoAppState extends State<QrivoApp> with WidgetsBindingObserver {
       providers: [
         ChangeNotifierProvider.value(value: authController),
         Provider<ApiClient>(
-          create: (_) => ApiClient(
-            httpClient: httpClient,
-            tokenProvider: authController.currentAccessToken,
-            onUnauthorized: authController.handleUnauthorized,
-          ),
+          create: (_) {
+            final client = ApiClient(
+              httpClient: httpClient,
+              tokenProvider: authController.currentAccessToken,
+              onUnauthorized: authController.handleUnauthorized,
+            );
+            // Self-healing: when the address looks dead, re-read the published
+            // config and report whether it changed, so the request can be
+            // retried against the new tunnel without a rebuild.
+            final resolver = widget.endpointResolver;
+            if (resolver != null) {
+              client.onAddressStale = () async {
+                final before = resolver.current?.apiBaseUrl;
+                await resolver.refresh();
+                final after = resolver.current?.apiBaseUrl;
+                return after != null && after != before;
+              };
+            }
+            return client;
+          },
         ),
         ProxyProvider<ApiClient, StudentApi>(
           update: (_, client, __) => StudentApi(client),
