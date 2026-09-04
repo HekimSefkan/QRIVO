@@ -98,7 +98,7 @@ class EndpointResolver {
       response = await _http.get(uri, headers: {
         'Accept': 'application/json',
         'Cache-Control': 'no-cache',
-      }).timeout(_timeout);
+      },).timeout(_timeout);
     } catch (_) {
       _lastFailure = EndpointFailure.configUnreachable;
       return;

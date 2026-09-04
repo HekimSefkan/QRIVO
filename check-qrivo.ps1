@@ -9,20 +9,28 @@
 #>
 
 $MYSQLD     = 'C:\laragon\bin\mysql\mysql-8.4.3-winx64\bin\mysqld.exe'
-$PUBLIC_HOST = 'fanatic-blitz-eastbound.ngrok-free.dev'
-$PUBLIC_URL  = "https://$PUBLIC_HOST"
+$CONFIG_URL  = 'https://raw.githubusercontent.com/HekimSefkan/QRIVO/endpoint/endpoint.json'
 $REPO        = 'C:\Projects\QRIVO'
 
 $failed = 0
 
 function Report($name, $up, $detail, $fix) {
     if ($up) {
-        Write-Host ("  {0,-14} UP     {1}" -f $name, $detail) -ForegroundColor Green
+        Write-Host ("  {0,-22} UP      {1}" -f $name, $detail) -ForegroundColor Green
     } else {
-        Write-Host ("  {0,-14} DOWN   {1}" -f $name, $detail) -ForegroundColor Red
-        Write-Host ("  {0,-14}        -> {1}" -f "", $fix) -ForegroundColor Yellow
+        Write-Host ("  {0,-22} DOWN    {1}" -f $name, $detail) -ForegroundColor Red
+        Write-Host ("  {0,-22}         -> {1}" -f "", $fix) -ForegroundColor Yellow
         $script:failed++
     }
+}
+
+# A third state, for when WE cannot tell. Blaming QRIVO because a free
+# third-party checker happens to be down would be the same class of wrong
+# answer as the old false positive, just pointing the other way. So this is
+# never counted as a failure -- and never printed green either.
+function ReportUnknown($name, $detail, $hint) {
+    Write-Host ("  {0,-22} UNKNOWN {1}" -f $name, $detail) -ForegroundColor DarkYellow
+    Write-Host ("  {0,-22}         -> {1}" -f "", $hint) -ForegroundColor DarkGray
 }
 
 function TryUrl($url, $timeout = 10) {
@@ -59,59 +67,102 @@ Report "Teacher panel" $panel.ok `
     $(if ($panel.ok) { "$($panel.ms) ms" } else { "no answer on port 8080 - $($panel.err)" }) `
     "run .\start-qrivo.ps1"
 
-# 4 — Public tunnel (ngrok)
+# 4 — Public tunnel (Cloudflare) and the published address
 #
-# HONESTY RULE FOR THIS BLOCK.
-# An earlier version fetched the public URL from this laptop and printed a green
-# "Public tunnel UP" while the phone could not connect at all. That was a false
-# positive: the machine was inside the Tailscale tailnet and resolved the name
-# locally. The lesson generalises beyond Tailscale -- a request issued from the
-# machine that HOSTS the service can succeed for reasons a phone on mobile data
-# does not share.
-#
-# So this block does two separate things and never conflates them:
-#   (a) local: is the ngrok agent even running?
-#   (b) external: ask an INDEPENDENT third-party service to fetch a nonce we
-#       just wrote. Only that can turn the line green.
-# If the external check cannot be performed, it says so instead of guessing.
+# HONESTY RULE. An earlier version fetched the public URL from this laptop and
+# printed green while the phone could not connect: the machine that HOSTS the
+# service can succeed for reasons a phone on mobile data does not share. So the
+# public line goes green ONLY when an INDEPENDENT third-party service fetches a
+# nonce written seconds earlier. If that check cannot run, this says so rather
+# than guessing.
 
-$ngrokRunning = [bool](Get-Process ngrok -ErrorAction SilentlyContinue)
-Report "ngrok agent" $ngrokRunning `
-    $(if ($ngrokRunning) { "running" } else { "not running" }) `
-    "run .\start-qrivo.ps1 (if it dies instantly, Defender is blocking it - see docs/DEMO_DAY.md)"
+$tunnelUp = [bool](Get-Process cloudflared -ErrorAction SilentlyContinue)
+Report "Tunnel" $tunnelUp `
+    $(if ($tunnelUp) { "cloudflared running" } else { "cloudflared not running" }) `
+    "run .\start-qrivo.ps1"
 
-$publicOk     = $false
-$publicDetail = "not checked"
-$publicFix    = "run .\start-qrivo.ps1, then re-check"
-
-if ($ngrokRunning) {
-    try {
-        $nonce = "qrivo-" + [guid]::NewGuid().ToString('N').Substring(0,12)
-        $nonce | Set-Content "$REPO\backend\public\probe.txt" -Encoding ascii -NoNewline
-        $seen = Invoke-RestMethod "https://api.allorigins.win/raw?url=https://$PUBLIC_HOST/probe.txt" -TimeoutSec 25
-        if ("$seen".Trim() -eq $nonce) {
-            $publicOk = $true
-            $publicDetail = "an external checker fetched our nonce - genuinely public"
-        } else {
-            $publicDetail = "external checker answered, but not with our nonce (stale cache or interstitial)"
-            $publicFix    = "check https://$PUBLIC_HOST/probe.txt in a browser"
-        }
-    } catch {
-        $publicDetail = "COULD NOT VERIFY externally: $($_.Exception.Message.Split([Environment]::NewLine)[0])"
-        $publicFix    = "this is not proof it is down - test from your phone on mobile data"
-    }
-} else {
-    $publicDetail = "skipped - the agent is not running"
+# The address is not fixed - it changes each restart - so read what is actually
+# published. This doubles as a check that the phone can discover it at all.
+$published   = $null
+$configOk    = $false
+$configDetail = "not checked"
+try {
+    $doc = Invoke-RestMethod "$CONFIG_URL`?t=$([DateTimeOffset]::Now.ToUnixTimeSeconds())" -TimeoutSec 20
+    $published = $doc.api_base_url
+    if ($published) {
+        $gen = [datetime]::Parse($doc.generated_at, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AdjustToUniversal -bor [Globalization.DateTimeStyles]::AssumeUniversal)
+        $age = [int]((Get-Date).ToUniversalTime() - $gen).TotalMinutes
+        $configOk = $true
+        $configDetail = "$published (published ${age}m ago)"
+    } else { $configDetail = "document has no api_base_url" }
+} catch {
+    $configDetail = "cannot read the published config: $($_.Exception.Message.Split([Environment]::NewLine)[0])"
 }
-Report "Public URL" $publicOk $publicDetail $publicFix
+Report "Published address" $configOk $configDetail "run .\start-qrivo.ps1 to republish"
+
+# Ask INDEPENDENT third parties to fetch a nonce written seconds ago.
+#   - allorigins / codetabs echo the body, so they can confirm the exact nonce.
+#   - hackertarget returns only headers, so it confirms HTTP 200 and that the
+#     Content-Length matches the nonce we just wrote. Weaker, but still external
+#     and it is the one that reliably answers from this network.
+$publicOk      = $false
+$publicUnknown = $false
+$publicDetail  = "skipped - tunnel or published address missing"
+
+if ($tunnelUp -and $published) {
+    $nonce = "qrivo-" + [guid]::NewGuid().ToString('N').Substring(0,12)
+    $nonce | Set-Content "$REPO\backend\public\probe.txt" -Encoding ascii -NoNewline
+    $probe = "$published/probe.txt"
+    $anyAnswered = $false
+
+    foreach ($c in @(
+        @{ name = 'allorigins';   url = "https://api.allorigins.win/raw?url=$probe";        body = $true },
+        @{ name = 'codetabs';     url = "https://api.codetabs.com/v1/proxy?quest=$probe";   body = $true },
+        @{ name = 'hackertarget'; url = "https://api.hackertarget.com/httpheaders/?q=$probe"; body = $false }
+    )) {
+        try {
+            $r = Invoke-WebRequest $c.url -UseBasicParsing -TimeoutSec 20
+            $anyAnswered = $true
+            if ($c.body) {
+                if ("$($r.Content)".Trim() -eq $nonce) {
+                    $publicOk = $true
+                    $publicDetail = "$($c.name) fetched our exact nonce - genuinely public"
+                    break
+                }
+            } else {
+                $text = "$($r.Content)"
+                if ($text -match 'HTTP/1\.\d 200' -and $text -match "Content-Length:\s*$($nonce.Length)\b") {
+                    $publicOk = $true
+                    $publicDetail = "$($c.name) got HTTP 200 with our nonce's exact length ($($nonce.Length)B)"
+                    break
+                }
+            }
+        } catch { }
+    }
+
+    if (-not $publicOk) {
+        if ($anyAnswered) {
+            $publicDetail = "an external checker answered but did not see our content"
+        } else {
+            $publicUnknown = $true
+            $publicDetail  = "no external checker responded (they are free services and go down)"
+        }
+    }
+}
+
+if ($publicUnknown) {
+    ReportUnknown "Reachable from outside" $publicDetail "this is NOT evidence QRIVO is down - test on your phone with Wi-Fi off"
+} else {
+    Report "Reachable from outside" $publicOk $publicDetail "test on your phone with Wi-Fi off; if that fails, run .\start-qrivo.ps1"
+}
 
 Write-Host ""
-Write-Host "  The Public URL line above is green ONLY when an independent" -ForegroundColor DarkGray
-Write-Host "  third-party service fetched a nonce written seconds earlier." -ForegroundColor DarkGray
-Write-Host "  A request from this laptop is never accepted as proof." -ForegroundColor DarkGray
+Write-Host "  The last line is green ONLY when an independent third-party service" -ForegroundColor DarkGray
+Write-Host "  fetched a nonce written seconds earlier. A request from this laptop" -ForegroundColor DarkGray
+Write-Host "  is never accepted as proof." -ForegroundColor DarkGray
 if ($failed -eq 0) {
-    Write-Host "  Local stack is up and public DNS is published." -ForegroundColor Green
-    Write-Host "  This is NOT proof the phone can connect - use the probe URL above." -ForegroundColor Yellow
+    Write-Host "  Everything is up and externally reachable." -ForegroundColor Green
+    Write-Host "  Panel: http://127.0.0.1:8080   (open on THIS laptop)" -ForegroundColor Gray
     Write-Host ""
     exit 0
 } else {

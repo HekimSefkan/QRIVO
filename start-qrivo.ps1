@@ -21,9 +21,7 @@ $TAILSCALE  = 'C:\Program Files\Tailscale\tailscale.exe'
 $REPO       = 'C:\Projects\QRIVO'
 $HTTPD      = 'C:/laragon/bin/apache/httpd-2.4.68-260617-Win64-VS18/bin/httpd.exe'
 $APACHECONF = 'C:/Projects/QRIVO/deploy/windows/qrivo-apache.conf'
-$PUBLIC_HOST = 'fanatic-blitz-eastbound.ngrok-free.dev'
-$PUBLIC_URL  = "https://$PUBLIC_HOST"
-$NGROK       = 'C:\Tools\ngrok\ngrok.exe'
+$PUBLIC_URL  = ""   # discovered at runtime; the tunnel hostname changes each start
 
 function Say($msg, $colour = 'Gray') { Write-Host $msg -ForegroundColor $colour }
 function Ok($msg)   { Write-Host "  [OK]   $msg" -ForegroundColor Green }
@@ -84,46 +82,20 @@ if (Get-Process httpd -ErrorAction SilentlyContinue) {
 }
 
 
-# ── 3/3. Public tunnel (ngrok, static domain) ───────────────────────────────
+# ── 3/3. Public tunnel + address publication ────────────────────────────────
 #
-# Tailscale Funnel was removed: it was configured correctly (MagicDNS, cert,
-# funnel capability, port 443) yet unreachable from five independent external
-# vantage points, while resolving fine from this laptop because the Tailscale
-# client intercepts *.ts.net at the OS level. ngrok's static domain replaces it.
+# A Cloudflare quick tunnel gets a NEW hostname every start, so starting it is
+# only half the job: the new address must be published where the phone can find
+# it. publish-endpoint.ps1 does both, and refuses to publish an address that
+# does not actually serve.
+#
+# (ngrok was tried and abandoned: Windows Defender on this machine blocks it as
+# Trojan:Win32/Kepavll!rfn, including the binary from ngrok's official CDN.)
 Say ""
-Say "3/3  Public tunnel (ngrok)"
-if (-not (Test-Path $NGROK)) {
-    Bad "ngrok not found at $NGROK"
-} elseif (Get-Process ngrok -ErrorAction SilentlyContinue) {
-    Ok "ngrok already running"
-} else {
-    Start-Process -FilePath $NGROK -ArgumentList `
-        "http","--domain=$PUBLIC_HOST","--config=$env:LOCALAPPDATA\ngrok\ngrok.yml",`
-        "--log=$REPO\deploy\windows\logs\ngrok.log","--log-format=json","8000" -WindowStyle Hidden
-    Start-Sleep -Seconds 6
-    if (Get-Process ngrok -ErrorAction SilentlyContinue) {
-        Ok "ngrok started"
-    } else {
-        Bad "ngrok did not start."
-        Warn "Most likely: Windows Defender is blocking it (Trojan:Win32/Kepavll!rfn)."
-        Warn "See deploy\windows\logs\ngrok.log, and docs/DEMO_DAY.md."
-    }
-}
-
-Say ""
-Say "Checking the public address from OUTSIDE this machine..."
-# Deliberately NOT a plain request to the public URL from here: a local request
-# can succeed for reasons a phone on mobile data does not share. This asks a
-# third party to fetch it instead.
-$externalOk = $false
-try {
-    $probe = "qrivo-" + [guid]::NewGuid().ToString('N').Substring(0,12)
-    $probe | Set-Content "$REPO\backend\public\probe.txt" -Encoding ascii -NoNewline
-    $seen = Invoke-RestMethod "https://api.allorigins.win/raw?url=https://$PUBLIC_HOST/probe.txt" -TimeoutSec 25
-    if ("$seen".Trim() -eq $probe) { $externalOk = $true }
-} catch { }
-if ($externalOk) { Ok "verified publicly reachable (external checker returned our nonce)" }
-else { Warn "could not confirm public reachability from outside - check with your phone on mobile data" }
+Say "3/3  Public tunnel + address publication"
+$published = & powershell -NoProfile -ExecutionPolicy Bypass -File "$REPO\deploy\windows\publish-endpoint.ps1"
+$PUBLIC_URL = ($published | Select-String 'https://[a-z0-9-]+\.trycloudflare\.com' | Select-Object -Last 1).Matches.Value
+if (-not $PUBLIC_URL) { Warn "no address was published - the phone will keep using its cached one" }
 
 # ── Ready ───────────────────────────────────────────────────────────────────
 Say ""
