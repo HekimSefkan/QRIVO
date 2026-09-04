@@ -9,9 +9,9 @@
 #>
 
 $MYSQLD     = 'C:\laragon\bin\mysql\mysql-8.4.3-winx64\bin\mysqld.exe'
-$TAILSCALE  = 'C:\Program Files\Tailscale\tailscale.exe'
-$PUBLIC_URL  = 'https://qrivo.tailbf9d6c.ts.net'
-$PUBLIC_HOST = 'qrivo.tailbf9d6c.ts.net'
+$PUBLIC_HOST = 'fanatic-blitz-eastbound.ngrok-free.dev'
+$PUBLIC_URL  = "https://$PUBLIC_HOST"
+$REPO        = 'C:\Projects\QRIVO'
 
 $failed = 0
 
@@ -59,71 +59,56 @@ Report "Teacher panel" $panel.ok `
     $(if ($panel.ok) { "$($panel.ms) ms" } else { "no answer on port 8080 - $($panel.err)" }) `
     "run .\start-qrivo.ps1"
 
-# 4 — Public tunnel
+# 4 — Public tunnel (ngrok)
 #
-# IMPORTANT: this machine is INSIDE the tailnet, and the Tailscale Windows
-# client intercepts *.ts.net lookups at the OS level. A plain
-# Invoke-WebRequest to the public URL therefore resolves over MagicDNS to the
-# 100.x tailnet address and NEVER touches the public Funnel path. An earlier
-# version of this script did exactly that and reported a green "UP" while the
-# phone could not connect at all.
+# HONESTY RULE FOR THIS BLOCK.
+# An earlier version fetched the public URL from this laptop and printed a green
+# "Public tunnel UP" while the phone could not connect at all. That was a false
+# positive: the machine was inside the Tailscale tailnet and resolved the name
+# locally. The lesson generalises beyond Tailscale -- a request issued from the
+# machine that HOSTS the service can succeed for reasons a phone on mobile data
+# does not share.
 #
-# So we do two things this machine cannot fake:
-#   1. resolve the name via Google DNS-over-HTTPS, which leaves this machine
-#      and cannot be answered by MagicDNS, and
-#   2. reject the answer if it is a CGNAT (100.64.0.0/10) address, because that
-#      is the tailnet address and is not routable from the internet.
-#
-# Even then we only claim "DNS is published correctly". Whether a phone on a
-# mobile network can complete a TLS handshake to those ingress IPs cannot be
-# proven from here, and this script says so rather than guessing.
-$tunnelOk = $false
-$tunnelDetail = "not checked"
-$tunnelFix = "start the Tailscale tray app, then run .\start-qrivo.ps1"
+# So this block does two separate things and never conflates them:
+#   (a) local: is the ngrok agent even running?
+#   (b) external: ask an INDEPENDENT third-party service to fetch a nonce we
+#       just wrote. Only that can turn the line green.
+# If the external check cannot be performed, it says so instead of guessing.
 
-if (-not (Test-Path $TAILSCALE)) {
-    $tunnelDetail = "Tailscale not installed"
-} else {
-    $state = (& $TAILSCALE status --json 2>$null | ConvertFrom-Json).BackendState
-    if ($state -ne 'Running') {
-        $tunnelDetail = "Tailscale backend is '$state' (start the tray app)"
-    } else {
-        $funnelOn = ((& $TAILSCALE funnel status 2>&1 | Out-String) -match 'Funnel on')
-        if (-not $funnelOn) {
-            $tunnelDetail = "Funnel is not configured on this node"
-            $tunnelFix = "run .\start-qrivo.ps1, or: tailscale funnel --bg --https=443 --set-path=/ http://127.0.0.1:8000"
+$ngrokRunning = [bool](Get-Process ngrok -ErrorAction SilentlyContinue)
+Report "ngrok agent" $ngrokRunning `
+    $(if ($ngrokRunning) { "running" } else { "not running" }) `
+    "run .\start-qrivo.ps1 (if it dies instantly, Defender is blocking it - see docs/DEMO_DAY.md)"
+
+$publicOk     = $false
+$publicDetail = "not checked"
+$publicFix    = "run .\start-qrivo.ps1, then re-check"
+
+if ($ngrokRunning) {
+    try {
+        $nonce = "qrivo-" + [guid]::NewGuid().ToString('N').Substring(0,12)
+        $nonce | Set-Content "$REPO\backend\public\probe.txt" -Encoding ascii -NoNewline
+        $seen = Invoke-RestMethod "https://api.allorigins.win/raw?url=https://$PUBLIC_HOST/probe.txt" -TimeoutSec 25
+        if ("$seen".Trim() -eq $nonce) {
+            $publicOk = $true
+            $publicDetail = "an external checker fetched our nonce - genuinely public"
         } else {
-            try {
-                $doh = Invoke-RestMethod "https://dns.google/resolve?name=$PUBLIC_HOST&type=A" -TimeoutSec 15
-                $ips = @($doh.Answer | Where-Object { $_.type -eq 1 } | Select-Object -ExpandProperty data)
-                if (-not $ips) {
-                    $tunnelDetail = "public DNS has no A record for $PUBLIC_HOST"
-                    $tunnelFix = "re-enable Funnel: https://login.tailscale.com/admin/settings/general"
-                } else {
-                    $cgnat = @($ips | Where-Object { $_ -match '^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.' })
-                    if ($cgnat.Count -eq $ips.Count) {
-                        $tunnelDetail = "public DNS returns only the tailnet address ($($ips -join ', ')) - NOT public"
-                        $tunnelFix = "Funnel is not published. Enable it at https://login.tailscale.com/admin/settings/general"
-                    } else {
-                        $tunnelOk = $true
-                        $tunnelDetail = "published publicly -> $($ips -join ', ')"
-                    }
-                }
-            } catch {
-                $tunnelDetail = "could not verify externally: $($_.Exception.Message.Split([Environment]::NewLine)[0])"
-                $tunnelFix = "check this machine has internet access, then re-run"
-            }
+            $publicDetail = "external checker answered, but not with our nonce (stale cache or interstitial)"
+            $publicFix    = "check https://$PUBLIC_HOST/probe.txt in a browser"
         }
+    } catch {
+        $publicDetail = "COULD NOT VERIFY externally: $($_.Exception.Message.Split([Environment]::NewLine)[0])"
+        $publicFix    = "this is not proof it is down - test from your phone on mobile data"
     }
+} else {
+    $publicDetail = "skipped - the agent is not running"
 }
-Report "Public DNS" $tunnelOk $tunnelDetail $tunnelFix
+Report "Public URL" $publicOk $publicDetail $publicFix
 
 Write-Host ""
-Write-Host "  NOTE: this machine is inside the tailnet, so it CANNOT prove that a" -ForegroundColor DarkGray
-Write-Host "        phone on mobile data can reach the API. The only real test is:" -ForegroundColor DarkGray
-Write-Host "        turn Wi-Fi OFF on the phone and open" -ForegroundColor DarkGray
-Write-Host "        https://$PUBLIC_HOST/panel/probe.txt" -ForegroundColor DarkGray
-Write-Host ""
+Write-Host "  The Public URL line above is green ONLY when an independent" -ForegroundColor DarkGray
+Write-Host "  third-party service fetched a nonce written seconds earlier." -ForegroundColor DarkGray
+Write-Host "  A request from this laptop is never accepted as proof." -ForegroundColor DarkGray
 if ($failed -eq 0) {
     Write-Host "  Local stack is up and public DNS is published." -ForegroundColor Green
     Write-Host "  This is NOT proof the phone can connect - use the probe URL above." -ForegroundColor Yellow

@@ -64,6 +64,13 @@ class ApiClient {
       'Accept': 'application/json',
       if (body != null) 'Content-Type': 'application/json',
       if (token != null) 'Authorization': 'Bearer $token',
+      // The API is published through an ngrok tunnel. On the free plan ngrok
+      // serves a browser interstitial before the real response, which would
+      // reach this client as HTML where JSON is expected. Sending this header
+      // suppresses it. It carries no authority: the server still authenticates
+      // and authorizes every request exactly as before, and sending it to a
+      // non-ngrok host is simply an ignored header.
+      'ngrok-skip-browser-warning': 'true',
     };
 
     http.Response response;
