@@ -21,7 +21,9 @@ $TAILSCALE  = 'C:\Program Files\Tailscale\tailscale.exe'
 $REPO       = 'C:\Projects\QRIVO'
 $HTTPD      = 'C:/laragon/bin/apache/httpd-2.4.68-260617-Win64-VS18/bin/httpd.exe'
 $APACHECONF = 'C:/Projects/QRIVO/deploy/windows/qrivo-apache.conf'
-$PUBLIC_URL = 'https://qrivo.tailbf9d6c.ts.net'
+$PUBLIC_HOST = 'fanatic-blitz-eastbound.ngrok-free.dev'
+$PUBLIC_URL  = "https://$PUBLIC_HOST"
+$NGROK       = 'C:\Tools\ngrok\ngrok.exe'
 
 function Say($msg, $colour = 'Gray') { Write-Host $msg -ForegroundColor $colour }
 function Ok($msg)   { Write-Host "  [OK]   $msg" -ForegroundColor Green }
@@ -81,47 +83,47 @@ if (Get-Process httpd -ErrorAction SilentlyContinue) {
     else { Bad "Teacher panel did not answer on :8080"; exit 1 }
 }
 
-# ── 4. Public tunnel ────────────────────────────────────────────────────────
+
+# ── 3/3. Public tunnel (ngrok, static domain) ───────────────────────────────
+#
+# Tailscale Funnel was removed: it was configured correctly (MagicDNS, cert,
+# funnel capability, port 443) yet unreachable from five independent external
+# vantage points, while resolving fine from this laptop because the Tailscale
+# client intercepts *.ts.net at the OS level. ngrok's static domain replaces it.
 Say ""
-Say "3/3  Public tunnel (Tailscale Funnel)"
-if (-not (Test-Path $TAILSCALE)) {
-    Bad "Tailscale is not installed at $TAILSCALE"
-    exit 1
-}
-# The Windows tray client owns the tailnet profile. Without it the backend sits
-# in "NoState" and Funnel cannot work, so make sure it is running first.
-if (-not (Get-Process tailscale-ipn -ErrorAction SilentlyContinue)) {
-    Start-Process 'C:\Program Files\Tailscale\tailscale-ipn.exe'
-    Write-Host "  [OK]   started Tailscale tray client" -ForegroundColor Green
+Say "3/3  Public tunnel (ngrok)"
+if (-not (Test-Path $NGROK)) {
+    Bad "ngrok not found at $NGROK"
+} elseif (Get-Process ngrok -ErrorAction SilentlyContinue) {
+    Ok "ngrok already running"
+} else {
+    Start-Process -FilePath $NGROK -ArgumentList `
+        "http","--domain=$PUBLIC_HOST","--config=$env:LOCALAPPDATA\ngrok\ngrok.yml",`
+        "--log=$REPO\deploy\windows\logs\ngrok.log","--log-format=json","8000" -WindowStyle Hidden
     Start-Sleep -Seconds 6
-}
-
-$state = (& $TAILSCALE status --json 2>$null | ConvertFrom-Json).BackendState
-if ($state -ne 'Running') {
-    Warn "Tailscale is '$state' - trying to bring it up"
-    & $TAILSCALE up --hostname=qrivo | Out-Null
-    Start-Sleep -Seconds 3
-}
-$funnel = & $TAILSCALE funnel status 2>&1 | Out-String
-if ($funnel -match 'https://') {
-    Ok "funnel is configured"
-} else {
-    Warn "funnel not configured - applying configuration"
-    & $TAILSCALE funnel --bg --https=443 --set-path=/ http://127.0.0.1:8000 2>&1 | Out-Null
-    & $TAILSCALE funnel --bg --https=443 --set-path=/panel http://127.0.0.1:8080 2>&1 | Out-Null
+    if (Get-Process ngrok -ErrorAction SilentlyContinue) {
+        Ok "ngrok started"
+    } else {
+        Bad "ngrok did not start."
+        Warn "Most likely: Windows Defender is blocking it (Trojan:Win32/Kepavll!rfn)."
+        Warn "See deploy\windows\logs\ngrok.log, and docs/DEMO_DAY.md."
+    }
 }
 
 Say ""
-Say "Checking the public address (this can take ~20s on first run"
-Say "while the certificate is issued)..."
-if (Wait-Url "$PUBLIC_URL/api/v1/health" 60) {
-    Ok "public HTTPS endpoint is answering"
-} else {
-    Bad "public endpoint did not answer."
-    Warn "Most likely cause: Funnel is not enabled for this tailnet."
-    Warn "Re-run this script, or see the Funnel note in the handover message."
-    Warn "Enable Funnel once at: https://login.tailscale.com/f/funnel"
-}
+Say "Checking the public address from OUTSIDE this machine..."
+# Deliberately NOT a plain request to the public URL from here: a local request
+# can succeed for reasons a phone on mobile data does not share. This asks a
+# third party to fetch it instead.
+$externalOk = $false
+try {
+    $probe = "qrivo-" + [guid]::NewGuid().ToString('N').Substring(0,12)
+    $probe | Set-Content "$REPO\backend\public\probe.txt" -Encoding ascii -NoNewline
+    $seen = Invoke-RestMethod "https://api.allorigins.win/raw?url=https://$PUBLIC_HOST/probe.txt" -TimeoutSec 25
+    if ("$seen".Trim() -eq $probe) { $externalOk = $true }
+} catch { }
+if ($externalOk) { Ok "verified publicly reachable (external checker returned our nonce)" }
+else { Warn "could not confirm public reachability from outside - check with your phone on mobile data" }
 
 # ── Ready ───────────────────────────────────────────────────────────────────
 Say ""
@@ -129,12 +131,11 @@ Say "======================================================" Green
 Say " QRIVO IS READY" Green
 Say "======================================================" Green
 Say ""
-Say "  Teacher panel :  $PUBLIC_URL/panel/"
-Say "  API           :  $PUBLIC_URL"
+Say "  Teacher panel :  http://127.0.0.1:8080          (open this on THIS laptop)"
+Say "  Public API    :  $PUBLIC_URL   (what the phone uses)"
 Say ""
 Say "  Teacher       :  teacher1@qrivo.local  /  Test1234!"
 Say "  Student       :  student01@qrivo.local /  Test1234!"
 Say ""
-Say "  Leave this machine awake and online while you demo."
-Say "  Stop everything afterwards with:  .\stop-qrivo.ps1"
+Say "  Stop everything with:  .\stop-qrivo.ps1"
 Say ""
