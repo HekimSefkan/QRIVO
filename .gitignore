@@ -163,3 +163,8 @@ backend/public/probe.txt
 # Release APK served over the hotspot for phone install - a build artifact.
 web/QRIVO.apk
 web/QRIVO-noshrink.apk
+
+# The original specification is a SAVED CHATGPT HTML PAGE whose embedded session
+# JSON contained a live OpenAI accessToken. Purged from git history 2026-09-08
+# (the token was revoked first). Kept locally; never commit it again.
+ORIGINAL_SPECIFICATION.md
