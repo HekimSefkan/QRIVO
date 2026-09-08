@@ -146,8 +146,26 @@ if (-not (Test-Path $PUBLISHER)) {
         -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$PUBLISHER`" -Quiet"
     # A short delay: the publisher checks the API answers before publishing an
     # address, and Apache needs a moment after boot to be ready.
+    # A REPEATING trigger, not a one-shot.
+    #
+    # The first reboot test showed why. The logon run was TERMINATED
+    # (LastTaskResult 0xC000013A) after starting cloudflared but before
+    # publishing, so the tunnel was live on a NEW address while the published
+    # document still named the old one. Restart-on-failure did not cover it,
+    # because a termination is not the same as a non-zero exit.
+    #
+    # Repeating every 5 minutes turns this into a reconciler: whatever the
+    # reason a run does not finish, the next one puts it right. It is also what
+    # republishes the address after a wake-from-sleep, when cloudflared
+    # reconnects with a different hostname. The publisher short-circuits when
+    # the published address already matches, so the steady-state cost is one
+    # HTTPS GET every five minutes.
     $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
     $trigger.Delay = 'PT30S'
+    $repeat = New-ScheduledTaskTrigger -Once -At (Get-Date) `
+        -RepetitionInterval (New-TimeSpan -Minutes 5) `
+        -RepetitionDuration ([TimeSpan]::MaxValue)
+    $trigger.Repetition = $repeat.Repetition
     # If it fails (no network yet, Apache still starting), try again. This is
     # also what re-publishes a NEW address after a wake-from-sleep drops the
     # tunnel and cloudflared reconnects with a different hostname.

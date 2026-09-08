@@ -39,11 +39,18 @@ $LOGDIR    = "$REPO\deploy\windows\logs"
 $TUNLOG    = "$LOGDIR\cloudflared.log"
 
 function Say($m, $c = 'Gray') { if (-not $Quiet) { Write-Host $m -ForegroundColor $c } }
-function Ok($m)   { Say "  [OK]   $m" Green }
-function Warn($m) { Say "  [WARN] $m" Yellow }
-function Bad($m)  { Say "  [FAIL] $m" Red }
+function Ok($m)   { Say "  [OK]   $m" Green;  Log "OK   $m" }
+function Warn($m) { Say "  [WARN] $m" Yellow; Log "WARN $m" }
+function Bad($m)  { Say "  [FAIL] $m" Red;    Log "FAIL $m" }
 
 New-Item -ItemType Directory -Force -Path $LOGDIR | Out-Null
+
+# Log everything to a file. When this runs as a scheduled task there is no
+# console, and a bare exit code (observed: LastTaskResult 0xC000013A, i.e.
+# terminated) says nothing about how far it got. This does.
+$TRANSCRIPT = "$LOGDIR\publish-endpoint.log"
+function Log($m) { "$(Get-Date -Format 'HH:mm:ss')  $m" | Out-File -Append -Encoding utf8 $TRANSCRIPT }
+Log "=== run start (session: $(if ($Quiet) { 'scheduled task' } else { 'interactive' })) ==="
 
 # ── 1. Start the tunnel ─────────────────────────────────────────────────────
 if (Get-Process cloudflared -ErrorAction SilentlyContinue) {
@@ -95,6 +102,21 @@ if (-not $serving) {
 }
 Ok "tunnel is serving the API"
 
+# ── 3b. Already correct? Then do nothing ────────────────────────────────────
+# This script runs on a repeating schedule, so the common case is "nothing
+# changed". Skipping the git work then keeps the endpoint branch quiet and
+# makes the repeat cheap.
+try {
+    $already = Invoke-RestMethod "https://raw.githubusercontent.com/HekimSefkan/QRIVO/endpoint/endpoint.json?t=$([DateTimeOffset]::Now.ToUnixTimeSeconds())" -TimeoutSec 15
+    if ($already.api_base_url -eq $publicUrl) {
+        Ok "published address already matches - nothing to do"
+        Log "=== run end (no change) ==="
+        if (-not $Quiet) { Write-Host ""; Write-Host "  Public API : $publicUrl" -ForegroundColor Cyan; Write-Host "" }
+        $publicUrl
+        exit 0
+    }
+} catch { Log "could not read the current published document; will publish anyway" }
+
 # ── 4. Publish ──────────────────────────────────────────────────────────────
 if (-not (Test-Path "$WORKTREE\.git")) {
     Say "  preparing the publication worktree (first run only)..."
@@ -138,3 +160,4 @@ if (-not $Quiet) {
 
 # Emit the URL so a caller can capture it.
 $publicUrl
+Log "=== run end ==="

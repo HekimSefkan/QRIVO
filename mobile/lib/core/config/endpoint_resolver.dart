@@ -87,24 +87,41 @@ class EndpointResolver {
   }
 
   Future<void> _doRefresh() async {
-    http.Response response;
-    try {
-      // Cache-buster: raw.githubusercontent sits behind a CDN that will happily
-      // serve the previous address for minutes after a restart, which is
-      // exactly when we need the new one.
-      final uri = Uri.parse(AppConfig.configUrl).replace(
-        queryParameters: {'t': DateTime.now().millisecondsSinceEpoch.toString()},
-      );
-      response = await _http.get(uri, headers: {
-        'Accept': 'application/json',
-        'Cache-Control': 'no-cache',
-      },).timeout(_timeout);
-    } catch (_) {
-      _lastFailure = EndpointFailure.configUnreachable;
-      return;
+    // Primary then fallback. See AppConfig.configUrlFallback for why the
+    // GitHub API is primary: the raw CDN caches for 5 minutes and ignores a
+    // cache-busting query string, so it can serve the PREVIOUS tunnel address
+    // exactly when the app is trying to heal.
+    final sources = <String>[
+      if (AppConfig.configUrl.isNotEmpty) AppConfig.configUrl,
+      if (AppConfig.configUrlFallback.isNotEmpty) AppConfig.configUrlFallback,
+    ];
+
+    http.Response? response;
+    for (final source in sources) {
+      try {
+        final uri = Uri.parse(source).replace(
+          queryParameters: {
+            ...Uri.parse(source).queryParameters,
+            't': DateTime.now().millisecondsSinceEpoch.toString(),
+          },
+        );
+        final candidate = await _http.get(uri, headers: {
+          // Asks the GitHub API for the file's raw bytes rather than its JSON
+          // metadata envelope. Harmless on the raw CDN, which ignores it.
+          'Accept': 'application/vnd.github.raw, application/json',
+          'Cache-Control': 'no-cache',
+        },).timeout(_timeout);
+        if (candidate.statusCode == 200) {
+          response = candidate;
+          break;
+        }
+        // Non-200 (rate limited, 404) — try the next source.
+      } catch (_) {
+        // Transport failure — try the next source.
+      }
     }
 
-    if (response.statusCode != 200) {
+    if (response == null) {
       _lastFailure = EndpointFailure.configUnreachable;
       return;
     }
