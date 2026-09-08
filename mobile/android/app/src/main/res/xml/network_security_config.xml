@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    APPLIES TO EVERY BUILD, INCLUDING RELEASE.
+
+    Cleartext HTTP is DENIED by default here, and permitted for exactly one
+    address: 192.168.137.1, which is where Windows Mobile Hotspot always puts
+    the host. That is the lecturer's laptop when the phone has joined its
+    hotspot: a two-device private network with no router and no internet path.
+
+    Why this is not a blanket allow:
+      base-config cleartextTrafficPermitted="false" keeps the Android default
+      (no cleartext) for everything else. A public host, the tunnel domain, or
+      any other LAN address still cannot be reached over http from a release
+      build. Only the single literal below is exempt.
+
+    Why an address and not a range:
+      Android's network security config has no CIDR syntax; it matches domains
+      and literals. Listing one deterministic address is tighter than any
+      approximation of a range would be, and it matches exactly what
+      EndpointResolver.lanCandidates probes.
+
+    This is the SECOND lock. EndpointConfig.isAllowedApiBase independently
+    refuses any address that is not a private literal or the HTTPS tunnel, so
+    an attacker would have to defeat both the app pin and this file.
+
+    The debug source set additionally permits cleartext broadly for local
+    development (app/src/debug/res/xml/network_security_config.xml); that file
+    is absent from release builds.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">192.168.137.1</domain>
+    </domain-config>
+</network-security-config>

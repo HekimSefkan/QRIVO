@@ -66,6 +66,55 @@ class EndpointResolver {
     }
   }
 
+  /// Addresses to try on the local network before consulting the published
+  /// config.
+  ///
+  /// `192.168.137.1` is not a guess: Windows Mobile Hotspot always puts the
+  /// host at that address. When the lecturer's laptop is the hotspot and the
+  /// phone has joined it, this is where the API is — no internet, no tunnel, no
+  /// address typed in by anyone.
+  static const lanCandidates = <String>[
+    'http://192.168.137.1:8000',
+  ];
+
+  /// Try the LAN first, briefly.
+  ///
+  /// Ordering matters. On the hotspot the LAN path is the only one that works
+  /// (there may be no internet at all), and it is also faster and has fewer
+  /// moving parts than the tunnel. Off the hotspot the probe fails in about a
+  /// second and costs nothing.
+  ///
+  /// The timeout is deliberately short: this runs before the first screen, and
+  /// a phone on mobile data must not wait on an address that cannot answer.
+  Future<EndpointConfig?> probeLan({Duration timeout = const Duration(milliseconds: 1200)}) async {
+    for (final base in lanCandidates) {
+      // Belt and braces: the candidate must clear the same pin as anything
+      // arriving from the config document.
+      if (!EndpointConfig.isAllowedApiBase(base)) continue;
+      try {
+        final r = await _http
+            .get(Uri.parse('$base/api/v1/health'))
+            .timeout(timeout);
+        if (r.statusCode == 200 && r.body.contains('"success"')) {
+          final config = EndpointConfig(
+            apiBaseUrl: base,
+            generatedAt: DateTime.now().toUtc(),
+          );
+          _current = config;
+          _lastFailure = null;
+          AppConfig.setRuntimeBaseUrl(base);
+          // Deliberately NOT cached: a LAN address is only meaningful while
+          // this phone is on that hotspot, and caching it would send the app
+          // to a dead address the next time it is somewhere else.
+          return config;
+        }
+      } catch (_) {
+        // Not on the hotspot. Entirely normal.
+      }
+    }
+    return null;
+  }
+
   /// Fetch the config document and adopt the address it advertises.
   ///
   /// Concurrent callers share one in-flight request: a burst of failing
@@ -84,6 +133,16 @@ class EndpointResolver {
       completer.complete();
     }
     return _current;
+  }
+
+  /// Full resolution: LAN first, then the published config.
+  ///
+  /// This is what startup and the self-healing path both call, so the ordering
+  /// is defined in exactly one place.
+  Future<EndpointConfig?> resolve() async {
+    final lan = await probeLan();
+    if (lan != null) return lan;
+    return refresh();
   }
 
   Future<void> _doRefresh() async {

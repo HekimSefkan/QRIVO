@@ -77,7 +77,9 @@ class _QrivoAppState extends State<QrivoApp> with WidgetsBindingObserver {
             if (resolver != null) {
               client.onAddressStale = () async {
                 final before = resolver.current?.apiBaseUrl;
-                await resolver.refresh();
+                // resolve() = LAN first, then the published config. If the
+                // lecturer switched the hotspot on mid-session this finds it.
+                await resolver.resolve();
                 final after = resolver.current?.apiBaseUrl;
                 return after != null && after != before;
               };

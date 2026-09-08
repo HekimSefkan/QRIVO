@@ -160,6 +160,26 @@ if (-not (Test-Path $taskScript)) {
     if ($LASTEXITCODE -eq 0) { Ok "tunnel task registered" } else { Bad "tunnel task registration failed" }
 }
 
+# ── 3b. Firewall: let the phone reach the API over the hotspot ──────────────
+#
+# Apache already listens on 0.0.0.0, so the hotspot interface is covered. What
+# blocks the phone is the Windows firewall: there was no inbound rule for
+# 8000/8080 at all.
+#
+# Scoped to the PRIVATE profile on purpose. Windows Mobile Hotspot is a private
+# network, so this opens the ports to the phone on the hotspot and NOT to a
+# public cafe or campus Wi-Fi the laptop might join later.
+Write-Host ""
+Write-Host "3b/4 Firewall rule for the hotspot"
+foreach ($port in 8000, 8080) {
+    $name = "QRIVO API $port (private)"
+    Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+    New-NetFirewallRule -DisplayName $name -Direction Inbound -Protocol TCP `
+        -LocalPort $port -Action Allow -Profile Private `
+        -Description 'QRIVO: allow the phone on the laptop hotspot to reach the API. Private profile only.' | Out-Null
+    Ok "inbound TCP $port allowed on the PRIVATE profile only"
+}
+
 # ── 4. Network adapter power management ─────────────────────────────────────
 Write-Host ""
 Write-Host "4/4  Stop Windows powering down the network adapter"

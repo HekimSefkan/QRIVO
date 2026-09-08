@@ -25,13 +25,20 @@ Future<void> main() async {
   // the app after a restart without anyone rebuilding it.
   final resolver = EndpointResolver(httpClient: httpClient);
   if (AppConfig.usesRuntimeConfig) {
-    await resolver.loadCached();
-    if (resolver.current == null) {
-      // Nothing cached — this is a first launch, so we must wait for the
-      // config before the app can talk to anything.
-      await resolver.refresh();
-    } else {
-      unawaited(resolver.refresh());
+    // LAN first: on the lecturer's hotspot that is the only path that works,
+    // and there may be no internet at all. The probe fails in about a second
+    // when the phone is not on the hotspot.
+    final lan = await resolver.probeLan();
+
+    if (lan == null) {
+      await resolver.loadCached();
+      if (resolver.current == null) {
+        // Nothing cached — first launch, so we must wait for the config
+        // before the app can talk to anything.
+        await resolver.refresh();
+      } else {
+        unawaited(resolver.refresh());
+      }
     }
   }
 

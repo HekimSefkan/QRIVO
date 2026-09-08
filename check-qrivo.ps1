@@ -67,6 +67,31 @@ Report "Teacher panel" $panel.ok `
     $(if ($panel.ok) { "$($panel.ms) ms" } else { "no answer on port 8080 - $($panel.err)" }) `
     "run .\start-qrivo.ps1"
 
+# 3b — Hotspot path (the demo-day route)
+#
+# This is the path that does not depend on the internet at all: the phone joins
+# the laptop's Wi-Fi hotspot and talks to it directly. Windows always puts the
+# hotspot host at 192.168.137.1, which is what the app probes first.
+$hotspotIp = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+             Where-Object { $_.IPAddress -eq '192.168.137.1' }
+if ($hotspotIp) {
+    $reach = TryUrl "http://192.168.137.1:8000/api/v1/health"
+    Report "Hotspot" $reach.ok `
+        $(if ($reach.ok) { "192.168.137.1:8000 answering ($($reach.ms) ms) - phone can connect" } else { "192.168.137.1 exists but the API did not answer" }) `
+        "check the firewall rule: Get-NetFirewallRule -DisplayName 'QRIVO API 8000 (private)'"
+} else {
+    ReportUnknown "Hotspot" "not started (no 192.168.137.1 on this machine)" `
+        "turn on Windows Mobile Hotspot if you want the offline demo path"
+}
+
+$fw = Get-NetFirewallPortFilter -ErrorAction SilentlyContinue |
+      Where-Object { $_.LocalPort -eq '8000' } |
+      ForEach-Object { Get-NetFirewallRule -AssociatedNetFirewallPortFilter $_ -ErrorAction SilentlyContinue } |
+      Where-Object { $_.Direction -eq 'Inbound' -and $_.Enabled -eq 'True' -and $_.Action -eq 'Allow' }
+Report "Firewall (8000 in)" ([bool]$fw) `
+    $(if ($fw) { "inbound allowed - the phone will not be blocked" } else { "NO inbound rule - the phone will be blocked" }) `
+    "run deploy\windows\install-autostart.ps1 as Administrator"
+
 # 4 — Public tunnel (Cloudflare) and the published address
 #
 # HONESTY RULE. An earlier version fetched the public URL from this laptop and

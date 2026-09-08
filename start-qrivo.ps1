@@ -97,6 +97,24 @@ $published = & powershell -NoProfile -ExecutionPolicy Bypass -File "$REPO\deploy
 $PUBLIC_URL = ($published | Select-String 'https://[a-z0-9-]+\.trycloudflare\.com' | Select-Object -Last 1).Matches.Value
 if (-not $PUBLIC_URL) { Warn "no address was published - the phone will keep using its cached one" }
 
+# ── Hotspot (the demo-day path) ─────────────────────────────────────────────
+# Apache already listens on 0.0.0.0, so nothing needs starting for this -- it
+# is purely a report on whether the offline path is available right now.
+Say ""
+Say "Hotspot (offline demo path)"
+$hs = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+      Where-Object { $_.IPAddress -eq '192.168.137.1' }
+if ($hs) {
+    if (Wait-Url "http://192.168.137.1:8000/api/v1/health" 5) {
+        Ok "hotspot is up and the API answers on 192.168.137.1:8000"
+    } else {
+        Warn "192.168.137.1 exists but the API did not answer - check the firewall rule"
+    }
+} else {
+    Warn "hotspot is OFF. Turn on Windows Mobile Hotspot (Win+A -> Mobile hotspot)"
+    Warn "for the demo path that needs no internet at all."
+}
+
 # ── Ready ───────────────────────────────────────────────────────────────────
 Say ""
 Say "======================================================" Green

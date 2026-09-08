@@ -78,21 +78,66 @@ class EndpointConfig {
     return DateTime.now().toUtc().difference(at.toUtc());
   }
 
-  /// The pin. Only an HTTPS Cloudflare quick-tunnel host is acceptable.
+  /// The pin. Exactly two shapes of address are acceptable:
   ///
-  /// Rejects, deliberately: plain http, a port, userinfo (`user:pass@host`),
-  /// any other domain, and a bare host with no scheme.
+  ///  1. **Tunnel** — `https://<label>.trycloudflare.com`, no port.
+  ///  2. **LAN** — `http://` or `https://` to a PRIVATE IPv4 literal
+  ///     (RFC1918: 10/8, 172.16/12, 192.168/16), port allowed. This is the
+  ///     lecturer's laptop on its own Wi-Fi hotspot, where the phone and the
+  ///     laptop are the only two devices on the link.
+  ///
+  /// Cleartext is permitted ONLY for case 2, and only because the packets never
+  /// leave a two-device private network. `http://` to any public host is
+  /// refused — see the tests, which pin that explicitly. Android enforces the
+  /// same rule independently through a scoped network security config, so this
+  /// is a second lock rather than the only one.
+  ///
+  /// Rejects, deliberately: plain http to a public host, userinfo
+  /// (`user:pass@host`), any other domain, a bare host with no scheme, a
+  /// PUBLIC IP literal, and loopback (which on a phone means the phone itself).
   static bool isAllowedApiBase(String value) {
     final uri = Uri.tryParse(value);
     if (uri == null) return false;
-    if (uri.scheme != 'https') return false;
-    if (uri.hasPort) return false;
     if (uri.userInfo.isNotEmpty) return false;
     if (uri.host.isEmpty) return false;
+
+    if (isPrivateIPv4(uri.host)) {
+      // A private address is unroutable from the internet, so http is safe here.
+      return uri.scheme == 'http' || uri.scheme == 'https';
+    }
+
+    // Anything that is not a private LAN address must be the HTTPS tunnel.
+    if (uri.scheme != 'https') return false;
+    if (uri.hasPort) return false;
 
     // A single label, then exactly trycloudflare.com. `evil.com/x.trycloudflare.com`
     // and `trycloudflare.com.evil.com` both fail this.
     return RegExp(r'^[a-z0-9][a-z0-9-]*\.trycloudflare\.com$').hasMatch(uri.host);
+  }
+
+  /// True for an RFC1918 private IPv4 literal.
+  ///
+  /// Loopback (127/8) and link-local (169.254/16) are deliberately NOT included:
+  /// on a phone, 127.0.0.1 is the phone itself, and link-local would let a
+  /// neighbouring device on an open network claim to be the server.
+  static bool isPrivateIPv4(String host) {
+    final parts = host.split('.');
+    if (parts.length != 4) return false;
+
+    final octets = <int>[];
+    for (final part in parts) {
+      // Reject leading zeros and non-numerics: "010" and "0x7f" must not parse.
+      if (part.isEmpty || part.length > 3) return false;
+      if (part.length > 1 && part.startsWith('0')) return false;
+      final n = int.tryParse(part);
+      if (n == null || n < 0 || n > 255) return false;
+      octets.add(n);
+    }
+
+    if (octets[0] == 10) return true;                                  // 10.0.0.0/8
+    if (octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31) return true; // 172.16.0.0/12
+    if (octets[0] == 192 && octets[1] == 168) return true;             // 192.168.0.0/16
+    return false;
   }
 
   /// Parse and validate. Throws [EndpointConfigException] with a specific

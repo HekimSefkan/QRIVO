@@ -63,12 +63,28 @@ and display the QR.
 
 ---
 
-## 4. The phone
+## 4. The phone — the hotspot path (PRIMARY, needs no internet)
 
-The app discovers the current address by itself. Turn **Wi-Fi off** so it is
-genuinely on mobile data, sign in as a student, and scan the QR on your screen.
+This is the route to use in front of the jury. It does not touch the internet,
+so nothing external can fail during your demo.
 
----
+1. On the laptop: **Win+A → Mobile hotspot → on.**
+   Windows always puts the laptop at `192.168.137.1`.
+2. On the phone: **turn Wi-Fi on and join that hotspot.**
+3. Open QRIVO. It probes `192.168.137.1:8000` first, finds the laptop, and uses
+   it. **You never type an address.**
+
+If the hotspot is off, or the phone is not on it, the app falls back to the
+published tunnel address automatically — so the same build works both ways.
+
+### Why this is the primary path
+
+Cloudflare quick tunnels proved unreliable: measured on 2026-09-08, roughly one
+in three never becomes reachable (cloudflared prints a hostname, registers one
+connection instead of four, and the name stays NXDOMAIN), and a tunnel that had
+been serving for an hour was withdrawn mid-session. Cloudflare's own banner says
+these account-less tunnels have **no uptime guarantee**. The hotspot depends on
+none of that.
 
 ## Logins
 
@@ -95,6 +111,7 @@ Students `student01` … `student12` all work, same password.
 | **Teacher panel DOWN** | Same Apache instance as the API; restart with `.\start-qrivo.ps1`. |
 | **Tunnel DOWN** | `.\start-qrivo.ps1`. Check `deploy\windows\logs\cloudflared.log`. |
 | **Reachable from outside** not green | Wait 20 s and re-run. If still red, test on the phone anyway — the external checker itself can be down. |
+| Phone cannot see the laptop on the hotspot | Run `.\check-qrivo.ps1` — it must show **Hotspot UP** and **Firewall (8000 in) UP**. If the firewall line is red, run install-autostart.ps1 as Administrator. |
 | Panel says **OUTSIDE_SCHEDULED_TIME** | You forgot step 1. Run `php scripts/seed.php`. |
 | Phone says **"Could not reach the server"** | Run `.check-qrivo.ps1`. If everything is green, the app will re-read the address by itself within a few seconds — pull to refresh. |
 | Phone says **"Your session expired"** | Normal after a long idle. Sign in again. |
