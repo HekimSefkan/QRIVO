@@ -105,13 +105,14 @@ Report "Firewall (8000 in)" ([bool]$fw) `
 
 $tunnelUp = [bool](Get-Process cloudflared -ErrorAction SilentlyContinue)
 Report "Tunnel" $tunnelUp `
-    $(if ($tunnelUp) { "cloudflared running" } else { "cloudflared not running" }) `
-    "run .\start-qrivo.ps1"
+    $(if ($tunnelUp) { "cloudflared running" } else { "cloudflared not running - this is EXPECTED; the demo does not use it" }) `
+    "the tunnel is opt-in: run .\start-qrivo.ps1 -Tunnel"
 
 # The address is not fixed - it changes each restart - so read what is actually
 # published. This doubles as a check that the phone can discover it at all.
 $published   = $null
 $configOk    = $false
+$configStale = $false
 $configDetail = "not checked"
 try {
     $doc = Invoke-RestMethod "$CONFIG_URL`?t=$([DateTimeOffset]::Now.ToUnixTimeSeconds())" -TimeoutSec 20
@@ -119,13 +120,27 @@ try {
     if ($published) {
         $gen = [datetime]::Parse($doc.generated_at, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AdjustToUniversal -bor [Globalization.DateTimeStyles]::AssumeUniversal)
         $age = [int]((Get-Date).ToUniversalTime() - $gen).TotalMinutes
-        $configOk = $true
-        $configDetail = "$published (published ${age}m ago)"
+        if ($tunnelUp) {
+            $configOk = $true
+            $configDetail = "$published (published ${age}m ago)"
+        } else {
+            # A published address with no tunnel behind it is a DEAD address.
+            # Reporting it green is exactly the false positive this script
+            # exists to avoid: the phone would read it and fail to connect.
+            $configStale = $true
+            $configDetail = "$published - STALE (published ${age}m ago; no tunnel is running, so this address is dead)"
+        }
     } else { $configDetail = "document has no api_base_url" }
 } catch {
     $configDetail = "cannot read the published config: $($_.Exception.Message.Split([Environment]::NewLine)[0])"
 }
-Report "Published address" $configOk $configDetail "run .\start-qrivo.ps1 to republish"
+if ($configStale) {
+    # Not a failure: for the hotspot demo there is nothing to publish. But never
+    # green either -- the phone would read this address and fail to connect.
+    ReportUnknown "Published address" $configDetail "irrelevant for the hotspot demo; to republish run .\start-qrivo.ps1 -Tunnel"
+} else {
+    Report "Published address" $configOk $configDetail "irrelevant for the hotspot demo; to republish run .\start-qrivo.ps1 -Tunnel"
+}
 
 # Ask INDEPENDENT third parties to fetch a nonce written seconds ago.
 #   - allorigins / codetabs echo the body, so they can confirm the exact nonce.
@@ -180,7 +195,7 @@ if ($tunnelUp -and $published) {
 if ($publicUnknown) {
     ReportUnknown "Reachable from outside" $publicDetail "this is NOT evidence QRIVO is down - test on your phone with Wi-Fi off"
 } else {
-    Report "Reachable from outside" $publicOk $publicDetail "test on your phone with Wi-Fi off; if that fails, run .\start-qrivo.ps1"
+    Report "Reachable from outside" $publicOk $publicDetail "only needed for the internet path; run .\start-qrivo.ps1 -Tunnel to set it up"
 }
 
 Write-Host ""

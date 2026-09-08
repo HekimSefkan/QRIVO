@@ -16,20 +16,24 @@
     WHAT THIS INSTALLS
       QRIVOMySQL     Windows service   MySQL 8.4 on the QRIVO data directory
       QRIVOApache    Windows service   Apache + mod_php serving :8000 and :8080
-      QRIVO-Tunnel   Scheduled task    cloudflared + publish the new address
 
-    WHY SERVICES FOR TWO AND A TASK FOR THE THIRD
+    WHAT THIS DELIBERATELY DOES NOT INSTALL
+      The public tunnel. It used to be registered here as a QRIVO-Tunnel logon
+      task that re-ran every five minutes -- and every run popped a console
+      window over whatever was on screen, which is intolerable during a
+      presentation. The demo path is the laptop hotspot and needs no tunnel at
+      all, so this installer no longer creates that task, and removes it if an
+      earlier version did.
+
+      Remote access is now strictly opt-in: run install-tunnel-task.ps1 by hand
+      (no administrator rights needed) and remove it with
+      `schtasks /delete /tn "QRIVO-Tunnel" /f`.
+
+    WHY SERVICES
     MySQL and Apache ship native service installers, which gives real crash
     recovery: this configures them to restart automatically after a failure.
-    The tunnel is different. A Cloudflare quick tunnel gets a NEW hostname every
-    time it starts, so starting it is only half the job -- the new address has
-    to be published for the phone to find it. That publish step pushes to this
-    repository using the git credentials of the logged-in user, which a SYSTEM
-    service does not have. It therefore runs as a logon task, as you.
-
-    CONSEQUENCE, STATED PLAINLY: MySQL and Apache come up at BOOT, before login.
-    The tunnel comes up when you LOG IN. On a laptop you log into anyway that is
-    the same thing in practice, but it is not the same thing in principle.
+    CONSEQUENCE, STATED PLAINLY: MySQL and Apache come up at BOOT, before login,
+    and restart themselves after a crash. Nothing else is scheduled to run.
 
     Laragon's own Apache on :443 is NOT touched. Nothing is excluded from
     Windows Defender.
@@ -136,30 +140,31 @@ if (Get-Service QRIVOApache -ErrorAction SilentlyContinue) {
     Ok "auto-start + crash recovery configured"
 }
 
-# ── 3. Tunnel + publish, at logon ───────────────────────────────────────────
+# ── 3. Tunnel: deliberately NOT registered ──────────────────────────────────
 #
-# Delegated to install-tunnel-task.ps1, which registers the task from XML via
-# schtasks. Two reasons it is not done with New-ScheduledTaskTrigger here:
+# This used to register QRIVO-Tunnel as a logon task repeating every five
+# minutes. Each repetition launched a PowerShell host, and each one flashed a
+# console window on top of whatever was on screen. During a demonstration that
+# is worse than having no tunnel at all -- and the demo path is the laptop
+# hotspot, which needs no tunnel whatsoever.
 #
-#  1. PowerShell 5.1 cannot express "repeat forever". -RepetitionDuration
-#     ([TimeSpan]::MaxValue) serialises to P99999999DT23H59M59S and the Task
-#     Scheduler rejects it outright (HRESULT 0x80041318). An OMITTED <Duration>
-#     in the XML is the correct way to say it, and only raw XML can do that.
-#  2. That script needs NO administrator rights, so the task can be reinstalled
-#     later without another elevated session.
+# So the installer now REMOVES that task rather than creating it. Remote access
+# is opt-in: run deploy\windows\install-tunnel-task.ps1 yourself when you
+# actually want it. That script needs no administrator rights, which is exactly
+# why it is a separate script and not a branch of this one.
 Write-Host ""
-Write-Host "3/4  Tunnel + address publication (scheduled task, at logon)"
-$taskScript = "$REPO\deploy\windows\install-tunnel-task.ps1"
-if (-not (Test-Path $taskScript)) {
-    Warn "not found: $taskScript - skipping"
-} else {
-    # Remove the old registration first: this session is elevated, so it can
-    # delete a task an earlier elevated run created. An unelevated shell cannot.
-    schtasks /delete /tn 'QRIVO-Tunnel' /f 2>&1 | Out-Null
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $taskScript
-    if ($LASTEXITCODE -eq 0) { Ok "tunnel task registered" } else { Bad "tunnel task registration failed" }
+Write-Host "3/4  Tunnel (not installed - opt-in only)"
+foreach ($task in @('QRIVO-Tunnel','QRIVO-Ngrok')) {
+    schtasks /query /tn $task 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        schtasks /delete /tn $task /f 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) { Ok "removed leftover task $task" }
+        else { Warn "could not remove $task - delete it with: schtasks /delete /tn `"$task`" /f" }
+    } else {
+        Info "$task not present"
+    }
 }
-
+Info "remote access is opt-in: deploy\windows\install-tunnel-task.ps1"
 # ── 3b. Firewall: let the phone reach the API over the hotspot ──────────────
 #
 # Apache already listens on 0.0.0.0, so the hotspot interface is covered. What
