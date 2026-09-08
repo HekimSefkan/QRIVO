@@ -62,7 +62,7 @@ Report "API" $api.ok `
     "run .\start-qrivo.ps1 ; if it still fails see deploy\windows\logs\apache-error.log"
 
 # 3 — Teacher panel
-$panel = TryUrl "http://127.0.0.1:8080"
+$panel = TryUrl "http://127.0.0.1:8000/panel/"
 Report "Teacher panel" $panel.ok `
     $(if ($panel.ok) { "$($panel.ms) ms" } else { "no answer on port 8080 - $($panel.err)" }) `
     "run .\start-qrivo.ps1"
@@ -84,10 +84,12 @@ if ($hotspotIp) {
         "turn on Windows Mobile Hotspot if you want the offline demo path"
 }
 
-$fw = Get-NetFirewallPortFilter -ErrorAction SilentlyContinue |
-      Where-Object { $_.LocalPort -eq '8000' } |
-      ForEach-Object { Get-NetFirewallRule -AssociatedNetFirewallPortFilter $_ -ErrorAction SilentlyContinue } |
-      Where-Object { $_.Direction -eq 'Inbound' -and $_.Enabled -eq 'True' -and $_.Action -eq 'Allow' }
+# Look the rule up BY NAME. The earlier version walked
+# Get-NetFirewallPortFilter -> Get-NetFirewallRule, which reported "no rule"
+# even when the rule plainly existed and a phone had just fetched JSON through
+# it. A false DOWN here would send you chasing a problem you do not have.
+$fw = Get-NetFirewallRule -DisplayName 'QRIVO API 8000*' -ErrorAction SilentlyContinue |
+      Where-Object { $_.Enabled -eq 'True' -and $_.Direction -eq 'Inbound' -and $_.Action -eq 'Allow' }
 Report "Firewall (8000 in)" ([bool]$fw) `
     $(if ($fw) { "inbound allowed - the phone will not be blocked" } else { "NO inbound rule - the phone will be blocked" }) `
     "run deploy\windows\install-autostart.ps1 as Administrator"
@@ -187,7 +189,7 @@ Write-Host "  fetched a nonce written seconds earlier. A request from this lapto
 Write-Host "  is never accepted as proof." -ForegroundColor DarkGray
 if ($failed -eq 0) {
     Write-Host "  Everything is up and externally reachable." -ForegroundColor Green
-    Write-Host "  Panel: http://127.0.0.1:8080   (open on THIS laptop)" -ForegroundColor Gray
+    Write-Host "  Panel: http://127.0.0.1:8000/panel/   (open on THIS laptop)" -ForegroundColor Gray
     Write-Host ""
     exit 0
 } else {

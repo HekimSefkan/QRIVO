@@ -51,17 +51,27 @@ mistake that once showed green while the phone could not connect.
 
 ---
 
-## 3. Open the teacher panel — locally
+## 3. Open the teacher panel — use THIS URL
 
 ```
-http://127.0.0.1:8080
+http://127.0.0.1:8000/panel/
 ```
 
-**On this laptop only** — the panel does not go through the tunnel at all. Sign in
-as the teacher, open the lesson, and press **YOKLAMA BAŞLAT** to start attendance
-and display the QR.
+**Use this one, not `:8080`.** Here the panel is served by the API itself, so
+they share an origin: no CORS, no cross-port anything, and no dependence on a
+tunnel that may be down. `:8080` still works, but it is a separate origin and
+therefore has more that can go wrong.
 
----
+Sign in as the teacher, open the CENG201 / CENG-2A lesson, and press
+**YOKLAMA BAŞLAT** to start attendance and display the QR.
+
+> The panel now *probes* for a working API rather than trusting a remembered
+> address: same origin, then the hotspot (`192.168.137.1:8000`), then the
+> published tunnel, and only then the manual "Sunucu adresi" override. That
+> order exists because a tunnel address saved during testing used to be sticky
+> in `localStorage` and won over everything — so the panel kept calling a dead
+> hostname and said "Sunucuya ulaşılamadı" while a healthy API sat on the same
+> machine.
 
 ## 4. The phone — the hotspot path (PRIMARY, needs no internet)
 
@@ -98,7 +108,7 @@ Students `student01` … `student12` all work, same password.
 
 **APK:** `C:\Users\hekim\Desktop\QRIVO.apk`
 **Public API:** changes each restart — run `.\check-qrivo.ps1` to see it
-**Panel:** `http://127.0.0.1:8080`
+**Panel:** `http://127.0.0.1:8000/panel/`
 
 ---
 

@@ -91,7 +91,15 @@
       init.body = JSON.stringify(options.body);
     }
 
-    return fetch(url(path, options.query), init).then(function (response) {
+    // Wait for config.js to finish PROBING which base actually answers. It
+    // resolves once and is cached, so this costs nothing after the first call.
+    // Without it the first request could go to the unprobed initial guess.
+    var ready = (window.QRIVO_CONFIG && window.QRIVO_CONFIG.ready) ||
+                Promise.resolve(null);
+
+    return ready.then(function () {
+      return fetch(url(path, options.query), init);
+    }).then(function (response) {
       return response.text().then(function (raw) {
         var decoded = null;
         try { decoded = raw ? JSON.parse(raw) : null; } catch (e) { decoded = null; }

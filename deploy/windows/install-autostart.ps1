@@ -166,18 +166,26 @@ if (-not (Test-Path $taskScript)) {
 # blocks the phone is the Windows firewall: there was no inbound rule for
 # 8000/8080 at all.
 #
-# Scoped to the PRIVATE profile on purpose. Windows Mobile Hotspot is a private
-# network, so this opens the ports to the phone on the hotspot and NOT to a
-# public cafe or campus Wi-Fi the laptop might join later.
+# Scoped by LOCAL ADDRESS, not by firewall profile. The first attempt used
+# -Profile Private, but the Mobile Hotspot adapter (a Wi-Fi Direct virtual
+# adapter) gets NO network profile at all, even once a phone has joined it --
+# verified on 2026-09-08 with a phone connected at 192.168.137.166. A
+# profile-scoped rule may therefore never apply.
+#
+# -LocalAddress 192.168.137.1 is both more reliable and TIGHTER: it allows
+# inbound connections only to the hotspot address, so the ports stay closed on
+# the Wi-Fi interface, on Tailscale, and on any public network the laptop joins
+# later. The profile no longer matters.
 Write-Host ""
 Write-Host "3b/4 Firewall rule for the hotspot"
 foreach ($port in 8000, 8080) {
-    $name = "QRIVO API $port (private)"
-    Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
-    New-NetFirewallRule -DisplayName $name -Direction Inbound -Protocol TCP `
-        -LocalPort $port -Action Allow -Profile Private `
-        -Description 'QRIVO: allow the phone on the laptop hotspot to reach the API. Private profile only.' | Out-Null
-    Ok "inbound TCP $port allowed on the PRIVATE profile only"
+    foreach ($old in @("QRIVO API $port (private)", "QRIVO API $port (hotspot)")) {
+        Get-NetFirewallRule -DisplayName $old -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+    }
+    New-NetFirewallRule -DisplayName "QRIVO API $port (hotspot)" -Direction Inbound -Protocol TCP `
+        -LocalPort $port -LocalAddress '192.168.137.1' -Action Allow -Profile Any `
+        -Description 'QRIVO: allow a phone on the laptop hotspot to reach the API. Bound to the hotspot address only, so the port stays closed on every other interface.' | Out-Null
+    Ok "inbound TCP $port allowed, but ONLY on 192.168.137.1"
 }
 
 # ── 4. Network adapter power management ─────────────────────────────────────

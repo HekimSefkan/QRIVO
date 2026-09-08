@@ -159,3 +159,6 @@ backend/.env.backup-*
 # Reachability probe tokens written during tunnel diagnosis — not source.
 web/probe.txt
 backend/public/probe.txt
+
+# Release APK served over the hotspot for phone install - a build artifact.
+web/QRIVO.apk
