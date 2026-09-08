@@ -4,10 +4,21 @@
     Cloudflare quick tunnels get a fresh random hostname every time they start.
     Rather than rebuild the APK after every restart, the app ships a fixed
     CONFIG URL and learns the current address from it. This script is the
-    publisher: it starts the tunnel, captures the new hostname, and force-pushes
-    it to the `endpoint` branch of this repository, which GitHub serves at
+    publisher: it starts a tunnel, PROVES it is actually reachable, and only
+    then force-pushes the address to the `endpoint` branch of this repository.
 
-        https://raw.githubusercontent.com/HekimSefkan/QRIVO/endpoint/endpoint.json
+    WHY IT RETRIES WITH A FRESH TUNNEL
+    Measured on 2026-09-08: roughly ONE IN THREE quick tunnels never becomes
+    reachable. cloudflared reports success and prints a hostname, but registers
+    only one connection instead of four and the hostname stays NXDOMAIN
+    indefinitely. It happens on both quic and http2, and a tunnel that had been
+    serving traffic for an hour was withdrawn the same way. Cloudflare's own
+    banner says these account-less tunnels "have no uptime guarantee".
+
+    A single attempt therefore fails about a third of the time. Discarding a
+    dead tunnel and asking for another turns that into near-certainty within a
+    few minutes, with nobody watching. This is a workaround for an unreliable
+    free service, not a fix -- see docs/DEMO_DAY.md for the durable options.
 
     WHY A BRANCH AND NOT A GIST
     A Gist needs a token with gist scope. Pushing to a branch of a repository
@@ -20,8 +31,6 @@
     server remains the sole authority for every security decision, and the app
     pins the host shape (https + *.trycloudflare.com) so this file cannot point
     it at an arbitrary host.
-
-    Called by start-qrivo.ps1. Safe to run on its own.
 #>
 
 param([switch]$Quiet)
@@ -32,82 +41,115 @@ param([switch]$Quiet)
 # below therefore never redirect stderr, and this stays 'Continue'.
 $ErrorActionPreference = 'Continue'
 
-$REPO      = 'C:\Projects\QRIVO'
-$WORKTREE  = 'C:\Projects\QRIVO-endpoint'
+$REPO        = 'C:\Projects\QRIVO'
+$WORKTREE    = 'C:\Projects\QRIVO-endpoint'
 $CLOUDFLARED = 'C:\Program Files (x86)\cloudflared\cloudflared.exe'
-$LOGDIR    = "$REPO\deploy\windows\logs"
-$TUNLOG    = "$LOGDIR\cloudflared.log"
+$LOGDIR      = "$REPO\deploy\windows\logs"
+$TUNLOG      = "$LOGDIR\cloudflared.log"
+$API_CONFIG  = 'https://api.github.com/repos/HekimSefkan/QRIVO/contents/endpoint.json?ref=endpoint'
+
+# Attempts to get a WORKING tunnel, and how long to give each one. Four
+# attempts at ~100s fits inside the scheduled task's 10-minute limit.
+$MAX_ATTEMPTS   = 4
+$REACHABLE_WAIT = [TimeSpan]::FromSeconds(100)
 
 function Say($m, $c = 'Gray') { if (-not $Quiet) { Write-Host $m -ForegroundColor $c } }
+
+New-Item -ItemType Directory -Force -Path $LOGDIR | Out-Null
+
+# Log to a file. When this runs as a scheduled task there is no console, and a
+# bare exit code says nothing about how far it got.
+$TRANSCRIPT = "$LOGDIR\publish-endpoint.log"
+function Log($m) { "$(Get-Date -Format 'HH:mm:ss')  $m" | Out-File -Append -Encoding utf8 $TRANSCRIPT }
+
 function Ok($m)   { Say "  [OK]   $m" Green;  Log "OK   $m" }
 function Warn($m) { Say "  [WARN] $m" Yellow; Log "WARN $m" }
 function Bad($m)  { Say "  [FAIL] $m" Red;    Log "FAIL $m" }
 
-New-Item -ItemType Directory -Force -Path $LOGDIR | Out-Null
-
-# Log everything to a file. When this runs as a scheduled task there is no
-# console, and a bare exit code (observed: LastTaskResult 0xC000013A, i.e.
-# terminated) says nothing about how far it got. This does.
-$TRANSCRIPT = "$LOGDIR\publish-endpoint.log"
-function Log($m) { "$(Get-Date -Format 'HH:mm:ss')  $m" | Out-File -Append -Encoding utf8 $TRANSCRIPT }
 Log "=== run start (session: $(if ($Quiet) { 'scheduled task' } else { 'interactive' })) ==="
 
-# ── 1. Start the tunnel ─────────────────────────────────────────────────────
-if (Get-Process cloudflared -ErrorAction SilentlyContinue) {
-    Ok "cloudflared already running"
-} else {
-    if (-not (Test-Path $CLOUDFLARED)) { Bad "cloudflared not found at $CLOUDFLARED"; exit 1 }
-    Remove-Item $TUNLOG -ErrorAction SilentlyContinue
-    Start-Process -FilePath $CLOUDFLARED `
-        -ArgumentList 'tunnel','--no-autoupdate','--url','http://127.0.0.1:8000' `
-        -RedirectStandardError $TUNLOG -RedirectStandardOutput "$LOGDIR\cloudflared.out.log" `
-        -WindowStyle Hidden
-    Ok "cloudflared started"
+if (-not (Test-Path $CLOUDFLARED)) { Bad "cloudflared not found at $CLOUDFLARED"; exit 1 }
+
+function Get-TunnelUrl {
+    $m = Select-String -Path $TUNLOG -Pattern 'https://[a-z0-9-]+\.trycloudflare\.com' `
+            -AllMatches -ErrorAction SilentlyContinue | Select-Object -Last 1
+    if ($m) { return $m.Matches[-1].Value }
+    return $null
 }
 
-# ── 2. Capture the public hostname ──────────────────────────────────────────
-$publicUrl = $null
-for ($i = 0; $i -lt 40; $i++) {
-    Start-Sleep -Milliseconds 750
-    foreach ($f in @($TUNLOG, "$LOGDIR\cloudflared.out.log")) {
-        if (Test-Path $f) {
-            $m = Select-String -Path $f -Pattern 'https://[a-z0-9-]+\.trycloudflare\.com' -AllMatches -ErrorAction SilentlyContinue |
-                 Select-Object -Last 1
-            if ($m) { $publicUrl = $m.Matches[-1].Value; break }
-        }
+function Test-Reachable($url, [TimeSpan]$budget) {
+    $deadline = (Get-Date).Add($budget)
+    while ((Get-Date) -lt $deadline) {
+        try {
+            $r = Invoke-WebRequest "$url/api/v1/health" -UseBasicParsing -TimeoutSec 8
+            if ($r.StatusCode -eq 200) { return $true }
+        } catch { }
+        Start-Sleep -Seconds 4
     }
-    if ($publicUrl) { break }
+    return $false
+}
+
+# ── 1. Get a tunnel that actually works ─────────────────────────────────────
+$publicUrl = $null
+
+# An already-running tunnel is reused if it still serves. That keeps the
+# 5-minute reconciler cheap and avoids churning a healthy tunnel.
+if (Get-Process cloudflared -ErrorAction SilentlyContinue) {
+    $existing = Get-TunnelUrl
+    if ($existing -and (Test-Reachable $existing ([TimeSpan]::FromSeconds(12)))) {
+        Ok "existing tunnel is healthy: $existing"
+        $publicUrl = $existing
+    } else {
+        Warn "existing tunnel is not serving - replacing it"
+        Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force
+        Start-Sleep -Seconds 3
+    }
 }
 
 if (-not $publicUrl) {
-    Bad "could not capture a tunnel URL - see $TUNLOG"
+    for ($attempt = 1; $attempt -le $MAX_ATTEMPTS; $attempt++) {
+        Log "attempt $attempt of ${MAX_ATTEMPTS}: requesting a new quick tunnel"
+        Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force
+        Start-Sleep -Seconds 2
+        if (Test-Path $TUNLOG) { Remove-Item -LiteralPath $TUNLOG -Force -ErrorAction SilentlyContinue }
+
+        Start-Process -FilePath $CLOUDFLARED `
+            -ArgumentList 'tunnel','--no-autoupdate','--url','http://127.0.0.1:8000' `
+            -RedirectStandardError $TUNLOG -RedirectStandardOutput "$LOGDIR\cloudflared.out.log" `
+            -WindowStyle Hidden
+
+        $candidate = $null
+        for ($i = 0; $i -lt 40; $i++) {
+            Start-Sleep -Milliseconds 750
+            $candidate = Get-TunnelUrl
+            if ($candidate) { break }
+        }
+        if (-not $candidate) { Warn "attempt ${attempt}: cloudflared printed no URL"; continue }
+
+        Log "attempt ${attempt}: got $candidate - waiting for it to become reachable"
+        if (Test-Reachable $candidate $REACHABLE_WAIT) {
+            Ok "tunnel is serving the API: $candidate"
+            $publicUrl = $candidate
+            break
+        }
+
+        # The signature of the failure mode: one registered connection, not four.
+        $conns = (Select-String -Path $TUNLOG -Pattern 'Registered tunnel connection' -ErrorAction SilentlyContinue).Count
+        Warn "attempt ${attempt}: $candidate never became reachable (registered $conns connection(s); healthy is 4) - discarding it"
+    }
+}
+
+if (-not $publicUrl) {
+    Bad "no working tunnel after $MAX_ATTEMPTS attempts."
+    Warn "Cloudflare quick tunnels are failing right now. The app keeps using its"
+    Warn "cached address. See the fallback in docs/DEMO_DAY.md."
+    Log "=== run end (no working tunnel) ==="
     exit 1
 }
-Ok "tunnel URL: $publicUrl"
 
-# ── 3. Confirm it actually serves before publishing it ──────────────────────
-# Publishing an address that does not work is worse than publishing nothing:
-# the app would adopt it and every request would fail.
-$serving = $false
-for ($i = 0; $i -lt 20; $i++) {
-    try {
-        $r = Invoke-WebRequest "$publicUrl/api/v1/health" -UseBasicParsing -TimeoutSec 8
-        if ($r.StatusCode -eq 200) { $serving = $true; break }
-    } catch { Start-Sleep -Seconds 2 }
-}
-if (-not $serving) {
-    Bad "the tunnel is up but $publicUrl/api/v1/health does not answer."
-    Warn "Not publishing a dead address. Is Apache running on :8000?"
-    exit 1
-}
-Ok "tunnel is serving the API"
-
-# ── 3b. Already correct? Then do nothing ────────────────────────────────────
-# This script runs on a repeating schedule, so the common case is "nothing
-# changed". Skipping the git work then keeps the endpoint branch quiet and
-# makes the repeat cheap.
+# ── 2. Already correct? Then do nothing ─────────────────────────────────────
 try {
-    $already = Invoke-RestMethod "https://raw.githubusercontent.com/HekimSefkan/QRIVO/endpoint/endpoint.json?t=$([DateTimeOffset]::Now.ToUnixTimeSeconds())" -TimeoutSec 15
+    $already = Invoke-RestMethod $API_CONFIG -Headers @{ Accept = 'application/vnd.github.raw' } -TimeoutSec 15
     if ($already.api_base_url -eq $publicUrl) {
         Ok "published address already matches - nothing to do"
         Log "=== run end (no change) ==="
@@ -115,24 +157,23 @@ try {
         $publicUrl
         exit 0
     }
-} catch { Log "could not read the current published document; will publish anyway" }
+} catch { Log "could not read the current published document; publishing anyway" }
 
-# ── 4. Publish ──────────────────────────────────────────────────────────────
+# ── 3. Publish ──────────────────────────────────────────────────────────────
 if (-not (Test-Path "$WORKTREE\.git")) {
-    Say "  preparing the publication worktree (first run only)..."
+    Log "preparing the publication worktree (first run only)"
     & git -C $REPO worktree prune | Out-Null
     & git -C $REPO worktree add -f --checkout $WORKTREE endpoint | Out-Null
     if (-not (Test-Path "$WORKTREE\.git")) { Bad "could not create the worktree at $WORKTREE"; exit 1 }
-    Ok "worktree ready at $WORKTREE"
 }
 
 $payload = [ordered]@{
     api_base_url = $publicUrl
     generated_at = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-    note         = 'Published by start-qrivo.ps1. Carries an address and nothing else.'
+    note         = 'Published by publish-endpoint.ps1. Carries an address and nothing else.'
 } | ConvertTo-Json
 
-# ASCII, no BOM: a BOM would make the leading byte non-JSON for strict parsers.
+# UTF-8 without a BOM: a BOM would make the leading byte non-JSON for strict parsers.
 [System.IO.File]::WriteAllText("$WORKTREE\endpoint.json", $payload, (New-Object System.Text.UTF8Encoding($false)))
 
 Push-Location $WORKTREE
@@ -144,13 +185,15 @@ try {
     else { Warn "git push failed - the app will keep using its cached address" }
 } finally { Pop-Location }
 
-# ── 5. Prove the published document is really live ──────────────────────────
-Start-Sleep -Seconds 3
+# ── 4. Prove the published document is really live ──────────────────────────
+Start-Sleep -Seconds 2
 try {
-    $live = Invoke-RestMethod "https://raw.githubusercontent.com/HekimSefkan/QRIVO/endpoint/endpoint.json?t=$([DateTimeOffset]::Now.ToUnixTimeSeconds())" -TimeoutSec 20
+    $live = Invoke-RestMethod $API_CONFIG -Headers @{ Accept = 'application/vnd.github.raw' } -TimeoutSec 20
     if ($live.api_base_url -eq $publicUrl) { Ok "config document is live and matches" }
-    else { Warn "config is live but still shows $($live.api_base_url) (CDN cache; usually clears within a minute)" }
-} catch { Warn "could not read back the config document: $($_.Exception.Message.Split([Environment]::NewLine)[0])" }
+    else { Warn "config is live but shows $($live.api_base_url)" }
+} catch { Warn "could not read back the config document" }
+
+Log "=== run end (published $publicUrl) ==="
 
 if (-not $Quiet) {
     Write-Host ""
@@ -158,6 +201,4 @@ if (-not $Quiet) {
     Write-Host ""
 }
 
-# Emit the URL so a caller can capture it.
 $publicUrl
-Log "=== run end ==="

@@ -137,45 +137,27 @@ if (Get-Service QRIVOApache -ErrorAction SilentlyContinue) {
 }
 
 # ── 3. Tunnel + publish, at logon ───────────────────────────────────────────
+#
+# Delegated to install-tunnel-task.ps1, which registers the task from XML via
+# schtasks. Two reasons it is not done with New-ScheduledTaskTrigger here:
+#
+#  1. PowerShell 5.1 cannot express "repeat forever". -RepetitionDuration
+#     ([TimeSpan]::MaxValue) serialises to P99999999DT23H59M59S and the Task
+#     Scheduler rejects it outright (HRESULT 0x80041318). An OMITTED <Duration>
+#     in the XML is the correct way to say it, and only raw XML can do that.
+#  2. That script needs NO administrator rights, so the task can be reinstalled
+#     later without another elevated session.
 Write-Host ""
 Write-Host "3/4  Tunnel + address publication (scheduled task, at logon)"
-if (-not (Test-Path $PUBLISHER)) {
-    Warn "publisher not found at $PUBLISHER - skipping"
+$taskScript = "$REPO\deploy\windows\install-tunnel-task.ps1"
+if (-not (Test-Path $taskScript)) {
+    Warn "not found: $taskScript - skipping"
 } else {
-    $action = New-ScheduledTaskAction -Execute 'powershell.exe' `
-        -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$PUBLISHER`" -Quiet"
-    # A short delay: the publisher checks the API answers before publishing an
-    # address, and Apache needs a moment after boot to be ready.
-    # A REPEATING trigger, not a one-shot.
-    #
-    # The first reboot test showed why. The logon run was TERMINATED
-    # (LastTaskResult 0xC000013A) after starting cloudflared but before
-    # publishing, so the tunnel was live on a NEW address while the published
-    # document still named the old one. Restart-on-failure did not cover it,
-    # because a termination is not the same as a non-zero exit.
-    #
-    # Repeating every 5 minutes turns this into a reconciler: whatever the
-    # reason a run does not finish, the next one puts it right. It is also what
-    # republishes the address after a wake-from-sleep, when cloudflared
-    # reconnects with a different hostname. The publisher short-circuits when
-    # the published address already matches, so the steady-state cost is one
-    # HTTPS GET every five minutes.
-    $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
-    $trigger.Delay = 'PT30S'
-    $repeat = New-ScheduledTaskTrigger -Once -At (Get-Date) `
-        -RepetitionInterval (New-TimeSpan -Minutes 5) `
-        -RepetitionDuration ([TimeSpan]::MaxValue)
-    $trigger.Repetition = $repeat.Repetition
-    # If it fails (no network yet, Apache still starting), try again. This is
-    # also what re-publishes a NEW address after a wake-from-sleep drops the
-    # tunnel and cloudflared reconnects with a different hostname.
-    $settings = New-ScheduledTaskSettingsSet `
-        -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable `
-        -RestartCount 10 -RestartInterval (New-TimeSpan -Minutes 1) `
-        -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
-    Register-ScheduledTask -TaskName 'QRIVO-Tunnel' -Action $action -Trigger $trigger `
-        -Settings $settings -RunLevel Limited -Force | Out-Null
-    Ok "registered QRIVO-Tunnel (30s after logon, retries up to 10 times)"
+    # Remove the old registration first: this session is elevated, so it can
+    # delete a task an earlier elevated run created. An unelevated shell cannot.
+    schtasks /delete /tn 'QRIVO-Tunnel' /f 2>&1 | Out-Null
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $taskScript
+    if ($LASTEXITCODE -eq 0) { Ok "tunnel task registered" } else { Bad "tunnel task registration failed" }
 }
 
 # ── 4. Network adapter power management ─────────────────────────────────────
