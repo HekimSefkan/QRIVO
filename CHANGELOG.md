@@ -9,6 +9,98 @@ and this project adheres to [Conventional Commits](https://www.conventionalcommi
 
 ## [Unreleased]
 
+### Added (Demo Hardening & Release Build — Phase 31)
+
+The system had to run on a laptop and a phone with **no internet**, and survive a
+jury demonstration. Four defects were found doing that; each was invisible to the
+test suite because each lived in the gap between components.
+
+**The release APK's camera never worked — R8 renamed ML Kit**
+
+The scanner failed on every release build with a null-reference naming
+R8-obfuscated classes (`q8 d11.a(r8)`). Debug builds were fine.
+
+The cause was in `mobile_scanner` 5.2.3's *own* consumer ProGuard rules:
+
+```proguard
+-keep class com.google.mlkit.* { *; }     # matches ONE package, not subpackages
+```
+
+In ProGuard syntax `.*` does not cross a package boundary; `.**` does. ML Kit's
+barcode classes live in `com.google.mlkit.vision.barcode.*`, so they were never
+kept, and R8 renamed the classes the native detector looks up reflectively.
+
+**Fix:** `mobile/android/app/proguard-rules.pro` with corrected wildcards, taken
+from the upstream libraries' own rules rather than invented. Verified from
+`mapping.txt`: **194 of 194** `com.google.mlkit` classes now map to themselves.
+R8 stays enabled — it is what takes the APK from ~165 MB to ~63 MB.
+
+**PHP ran on UTC while MySQL ran on local time**
+
+`APP_TIMEZONE` was read from the environment but `date_default_timezone_set()`
+was never called, so PHP and MySQL disagreed by three hours. A lesson scheduled
+12:41–16:41 was refused as `OUTSIDE_SCHEDULED_TIME` during its own window.
+
+**Fix:** `Bootstrap/App::applyTimezone()`, the same in `scripts/_cli.php`, and
+`Connection::alignSessionTimezone()` issuing `SET time_zone` with PHP's numeric
+offset (named zones need MySQL timezone tables, absent on Windows). Boundary
+tests pin the four transitions: just before a lesson starts, just after, just
+before it ends, just after.
+
+**A health check that could not fail**
+
+`check-qrivo.ps1` reported the public tunnel healthy while the phone could not
+connect. It ran from the host, where the OS resolved the tunnel name locally —
+the one machine whose answer proves nothing.
+
+**Fix:** reachability is now confirmed only by **independent third-party
+services** fetching a nonce generated seconds earlier, which no cache can serve.
+The check also gained an explicit `UNKNOWN` state, because "I could not tell" and
+"it is up" must never render the same.
+
+**The panel preferred a remembered address over a working one**
+
+`web/assets/js/config.js` trusted `localStorage` before probing, so the panel
+failed while a healthy API answered on the same machine.
+
+**Fix:** async resolution in strict order — same-origin, then the hotspot
+address, then the published tunnel, then a saved override, with `?api=` still
+winning outright. The manual *"Sunucu adresi"* field remains as a last resort.
+
+### Added (Security — Phase 31)
+
+- **F-4: production refuses to boot with wildcard CORS.**
+  `App::assertProductionConfiguration()` throws when `APP_ENV=production` and
+  `CORS_ALLOWED_ORIGINS` is empty or contains `*` — including a `*` hidden in an
+  otherwise-explicit list, which is the dangerous case because it *looks*
+  configured. Local and testing environments are deliberately untouched, pinned
+  by its own test, so nobody is tempted to delete the guard to get work done.
+  6 tests in `tests/Unit/Bootstrap/ProductionCorsGuardTest.php`.
+- **Scoped cleartext only.** `network_security_config.xml` sets
+  `cleartextTrafficPermitted="false"` as the base and opens exactly one
+  domain-config for `192.168.137.1`. `isAllowedApiBase()` independently accepts
+  only a `*.trycloudflare.com` HTTPS host or an RFC1918 private IPv4 literal;
+  leading zeros, hex octets and wrong octet counts are rejected. Tests prove a
+  public plaintext host is still refused.
+- **A live OpenAI `accessToken` was purged from git history.** The original
+  specification was a saved ChatGPT HTML page whose embedded session JSON carried
+  a real token. The token was revoked first, then the file was removed from all
+  history and force-pushed. Verified: 0 commits reference it and the GitHub API
+  returns 404. A history-wide secret scan found only the public jwt.io test vector
+  used by `LogSanitizerTest` to prove redaction.
+
+### Added (Documentation — Phase 31)
+
+- `docs/DEMO_DAY.md` — the hotspot demonstration path, six steps, with a
+  symptom/remedy table and the four things to show a jury.
+- `docs/THESIS_SUMMARY.md` — one honest page: what the system does, the
+  architecture, the security model including **what it does not guarantee**, the
+  measured numbers, and the defects above. It states plainly that a sustained
+  soak test was never run, that the dispute module was designed but not built,
+  and that iOS has never been compiled.
+
+---
+
 ### Fixed (Demo Reliability — Phase 30)
 
 Reported symptom: the student app intermittently showed *"Could not reach the
