@@ -3,6 +3,14 @@
 > **This file documents genuinely ambiguous, underspecified, or potentially contradictory requirements.**
 > Nothing here is assumed or guessed. Each question must be resolved before the affected module is implemented.
 
+> **State at delivery (2026-09-08).** All ten questions were put to the project
+> owner as a formal decision brief in Phase 27. No answers were given, so
+> **none of them was decided on the owner's behalf.** Where a question blocked
+> working software, an *interim position* was taken, marked 🟡, chosen to be the
+> most conservative option and reversible: the signal is wired but inert, or the
+> value is configurable with a documented default. Nothing marked ⏳ or 🟡 should
+> be read as a settled requirement.
+
 ---
 
 ## OQ-001: Attendance State — PENDING_REVIEW
@@ -194,7 +202,20 @@ Two structural notes:
 
 **Impact:** Configuration, environment setup, CI/CD
 
-**Status:** ⏳ Awaiting user clarification
+**Interim position (Phase 30–31), recorded as fact, not as an answer:** the
+system was built and demonstrated on a single Windows laptop. Apache + `mod_php`
+serves the API on `:8000` and the panel on `:8080`; no Docker; no TLS, because
+the demonstration runs over a laptop Wi-Fi hotspot with no router and no
+internet path; MySQL is on the same host; the Android app is sideloaded from an
+APK. `docs/DEPLOYMENT.md` describes what a real deployment would additionally
+need, and the production CORS guard (F-4) now refuses to boot a misconfigured
+one.
+
+**Still open:** the actual target environment, TLS termination, database
+hosting, and app distribution. None of this is decided.
+
+**Status:** 🟡 Demo deployment exists and is documented — production deployment
+still awaiting user clarification
 
 ---
 
@@ -262,3 +283,37 @@ threshold. Recorded in `ACCEPTED_DEVIATIONS.md` AD-014.
 (per-subnet trust, geo-velocity) in a later phase.
 
 **Status:** 🟡 Interim resolution in place — deny-list only, inert by default
+
+---
+
+## OQ-011: Attendance Dispute / Absence-Request Flow
+
+**Source:** Original specification §31; analysed in `docs/SPEC_GAP_REPORT.md`
+
+**Question:** §31 requires that a student be able to contest an attendance
+record. The rule itself is not ambiguous and was stated explicitly by the
+project owner:
+
+> a student may NEVER change their own attendance status, they may only file a
+> request that a teacher or admin resolves, and every resolution is audit logged.
+
+What is unspecified is everything around it: who may resolve a dispute (the
+lesson's teacher only, any teacher on the course, an administrator?), whether a
+resolution window closes after the session or the term, whether supporting
+documents may be attached and where they would be stored, and whether the
+student is notified of the outcome — which entangles this with OQ-002.
+
+**Impact:** A new table, a state machine (`OPEN → RESOLVED_ACCEPTED |
+RESOLVED_REJECTED | WITHDRAWN`), three endpoints, an audit-log event type, and
+mobile UI.
+
+**Status:** ❌ **Designed, NOT implemented.** The gap report specifies it; no
+code exists. This is the largest single piece of the original specification that
+the delivered system does not cover, and it is recorded here rather than
+described as done.
+
+**What holds in the meantime:** the *security* half of §31 is enforced today —
+a student cannot alter attendance by any route, and the smoke test asserts
+**HTTP 403** on the attempt. A teacher can already correct a record manually
+with a written reason, which is written to `audit_logs`. So the outcome §31
+protects is reachable; the student-initiated request that reaches it is not.
