@@ -186,6 +186,22 @@ class _CameraError extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: Colors.white),
               ),
+              const SizedBox(height: 12),
+              // The plugin hands us a specific errorCode and details, and this
+              // screen used to throw them away — leaving "the camera is
+              // unavailable" as the only evidence of anything. That is not
+              // enough to diagnose a camera failure on someone else's phone.
+              //
+              // This is device/camera state, not a security detail: it says
+              // nothing about accounts, tokens, attendance or authorization,
+              // so surfacing it leaks nothing. Attendance verdicts continue to
+              // show only the server's own generic message.
+              Text(
+                'Details: ${error.errorCode.name}'
+                '${error.errorDetails?.message != null ? '\n${error.errorDetails!.message}' : ''}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white38, fontSize: 12),
+              ),
               const SizedBox(height: 20),
               OutlinedButton(
                 onPressed: () => Navigator.of(context).maybePop(),

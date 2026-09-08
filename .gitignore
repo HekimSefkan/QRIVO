@@ -162,3 +162,4 @@ backend/public/probe.txt
 
 # Release APK served over the hotspot for phone install - a build artifact.
 web/QRIVO.apk
+web/QRIVO-noshrink.apk

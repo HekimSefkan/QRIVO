@@ -1,100 +1,95 @@
 # QRIVO — Jury Presentation Day
 
-One page. Do these in order.
+One page. Do these in order. **No internet is required for any of it.**
 
 ---
 
-## Before you leave the house
+## 1. Start (or confirm) the system
 
 ```powershell
 cd C:\Projects\QRIVO
 .\start-qrivo.ps1
 ```
 
-Starts MySQL, Apache (API + panel) and the Cloudflare tunnel, publishes the
-new public address, and waits until each part actually answers before printing
-**QRIVO IS READY**.
-
-If autostart is installed (`deploy\windows\install-autostart.ps1`, run once as
-Administrator), MySQL and Apache are already up at boot and this script just
-confirms them and starts the tunnel.
+MySQL and Apache are Windows services and come up **at boot** on their own, so
+usually this just confirms them.
 
 ---
 
-## 1. Re-seed so the lesson is happening *now*
+## 2. Re-seed so the lesson is happening NOW
 
-**Do this every demo day.** The demo lesson is scheduled around the moment the
-seeder runs; if you seeded yesterday, the window has passed and the teacher
-panel will refuse to start attendance with `OUTSIDE_SCHEDULED_TIME`.
+**Do this every demo day.** The demo lesson is centred on the moment the seeder
+runs. If you seeded yesterday the window has passed and the panel will refuse to
+start attendance with `OUTSIDE_SCHEDULED_TIME` — that is the eligibility control
+working correctly, not a bug.
 
 ```powershell
 cd C:\Projects\QRIVO\backend
 php scripts/seed.php
 ```
 
-It is idempotent — it will say `rows inserted: 0` and simply re-centre the
-lesson. The last lines print the window; check it covers the current time.
+It is idempotent: it prints `rows inserted: 0` and re-centres the lesson. The last
+lines show the window — check it covers the current time.
 
 ---
 
-## 2. Verify everything with one command
+## 3. Turn on the hotspot
+
+**Win+A → Mobile hotspot → on.** Windows always puts the laptop at
+`192.168.137.1`. Join the phone to it. The phone will say "no internet" — expected
+and correct; nothing here uses the internet.
+
+---
+
+## 4. Verify with one command
 
 ```powershell
 cd C:\Projects\QRIVO
 .\check-qrivo.ps1
 ```
 
-Six lines, green or red. **The "Reachable from outside" line only goes green when
-an independent third-party service fetches a nonce written seconds earlier** — a
-request from this laptop is never accepted as proof, because that is exactly the
-mistake that once showed green while the phone could not connect.
+The lines that matter: **MySQL**, **API**, **Teacher panel**, **Hotspot**,
+**Firewall (8000 in)**. If those five are green you are ready.
+
+*"Tunnel" and "Reachable from outside" concern the optional internet path and are
+irrelevant here — red on those does not affect the demo.*
 
 ---
 
-## 3. Open the teacher panel — use THIS URL
+## 5. Open the teacher panel
 
 ```
 http://127.0.0.1:8000/panel/
 ```
 
-**Use this one, not `:8080`.** Here the panel is served by the API itself, so
-they share an origin: no CORS, no cross-port anything, and no dependence on a
-tunnel that may be down. `:8080` still works, but it is a separate origin and
-therefore has more that can go wrong.
+**This URL, not `:8080`.** Here the panel is served by the API itself, so they
+share an origin: no CORS, nothing cross-port to go wrong.
 
-Sign in as the teacher, open the CENG201 / CENG-2A lesson, and press
-**YOKLAMA BAŞLAT** to start attendance and display the QR.
+Sign in as the teacher, open **CENG201 / CENG-2A**, press **YOKLAMA BAŞLAT**. The
+QR appears and refreshes every 30 seconds — that refresh is the anti-replay
+design, not a glitch.
 
-> The panel now *probes* for a working API rather than trusting a remembered
-> address: same origin, then the hotspot (`192.168.137.1:8000`), then the
-> published tunnel, and only then the manual "Sunucu adresi" override. That
-> order exists because a tunnel address saved during testing used to be sticky
-> in `localStorage` and won over everything — so the panel kept calling a dead
-> hostname and said "Sunucuya ulaşılamadı" while a healthy API sat on the same
-> machine.
+---
 
-## 4. The phone — the hotspot path (PRIMARY, needs no internet)
+## 6. The phone
 
-This is the route to use in front of the jury. It does not touch the internet,
-so nothing external can fail during your demo.
+Open QRIVO and sign in as the student. It finds the laptop at `192.168.137.1:8000`
+by itself — **no address is ever typed**. Scan the QR on your screen. The
+student's row flips to **VAR / QR** with a timestamp within about 3 seconds.
 
-1. On the laptop: **Win+A → Mobile hotspot → on.**
-   Windows always puts the laptop at `192.168.137.1`.
-2. On the phone: **turn Wi-Fi on and join that hotspot.**
-3. Open QRIVO. It probes `192.168.137.1:8000` first, finds the laptop, and uses
-   it. **You never type an address.**
+---
 
-If the hotspot is off, or the phone is not on it, the app falls back to the
-published tunnel address automatically — so the same build works both ways.
+## What to show the jury — all verified working on 2026-09-08
 
-### Why this is the primary path
+| Step | What it proves |
+| --- | --- |
+| Student scans the QR | Recorded as `PRESENT`, source `QR` |
+| Scan the **same** QR again | Refused — the challenge is single-use |
+| Teacher sets a student to **GEÇ** with a reason | Manual override, source `MANUAL`, written to `audit_logs` |
+| **YOKLAMAYI KAPAT** | Session `CLOSED`; every remaining `WAITING` becomes `YOK` |
+| A student trying to set their own status | **HTTP 403** — a student can never alter attendance |
 
-Cloudflare quick tunnels proved unreliable: measured on 2026-09-08, roughly one
-in three never becomes reachable (cloudflared prints a hostname, registers one
-connection instead of four, and the name stays NXDOMAIN), and a tunnel that had
-been serving for an hour was withdrawn mid-session. Cloudflare's own banner says
-these account-less tunnels have **no uptime guarantee**. The hotspot depends on
-none of that.
+---
 
 ## Logins
 
@@ -104,11 +99,11 @@ none of that.
 | Student | `student01@qrivo.local` | `Test1234!` |
 | Admin | `superadmin@qrivo.local` | `Test1234!` |
 
-Students `student01` … `student12` all work, same password.
+`student01` … `student12` all work, same password.
 
-**APK:** `C:\Users\hekim\Desktop\QRIVO.apk`
-**Public API:** changes each restart — run `.\check-qrivo.ps1` to see it
-**Panel:** `http://127.0.0.1:8000/panel/`
+- **Panel:** `http://127.0.0.1:8000/panel/`
+- **APK for the phone:** `http://192.168.137.1:8080/QRIVO.apk`
+- **APK on the laptop:** `C:\Users\hekim\Desktop\QRIVO.apk`
 
 ---
 
@@ -116,32 +111,41 @@ Students `student01` … `student12` all work, same password.
 
 | Symptom | Do this |
 | --- | --- |
-| `check-qrivo.ps1` says **MySQL DOWN** | `.\start-qrivo.ps1`. If it still fails, open Laragon and press Start. |
-| **API DOWN** | `.\start-qrivo.ps1`. If it still fails: `deploy\windows\logs\apache-error.log`. Usually port 8000 is taken — `netstat -ano \| findstr :8000`. |
-| **Teacher panel DOWN** | Same Apache instance as the API; restart with `.\start-qrivo.ps1`. |
-| **Tunnel DOWN** | `.\start-qrivo.ps1`. Check `deploy\windows\logs\cloudflared.log`. |
-| **Reachable from outside** not green | Wait 20 s and re-run. If still red, test on the phone anyway — the external checker itself can be down. |
-| Phone cannot see the laptop on the hotspot | Run `.\check-qrivo.ps1` — it must show **Hotspot UP** and **Firewall (8000 in) UP**. If the firewall line is red, run install-autostart.ps1 as Administrator. |
-| Panel says **OUTSIDE_SCHEDULED_TIME** | You forgot step 1. Run `php scripts/seed.php`. |
-| Phone says **"Could not reach the server"** | Run `.check-qrivo.ps1`. If everything is green, the app will re-read the address by itself within a few seconds — pull to refresh. |
+| **MySQL DOWN** | `Start-Service QRIVOMySQL` in an **admin** PowerShell. Do **not** also open Laragon — two MySQL instances cannot share one data directory. |
+| **API or Teacher panel DOWN** | `Restart-Service QRIVOApache` (admin). Log: `deploy\windows\logs\apache-error.log`. |
+| **Hotspot UNKNOWN** | The hotspot is off. Win+A → Mobile hotspot → on. |
+| **Firewall red** | Run `deploy\windows\install-autostart.ps1` as Administrator. |
+| Panel says **OUTSIDE_SCHEDULED_TIME** | You skipped step 2. Run `php scripts/seed.php`. |
+| Panel says **"Sunucuya ulaşılamadı"** | You are on `:8080`. Use `http://127.0.0.1:8000/panel/`. |
+| Phone cannot reach the server | Confirm it is on the hotspot, not mobile data. Test `http://192.168.137.1:8000/api/v1/health` in the phone's browser. |
 | Phone says **"Your session expired"** | Normal after a long idle. Sign in again. |
-| Everything is broken and the jury is waiting | Put the phone on the laptop's Wi-Fi hotspot and demo against `http://<laptop-LAN-IP>:8000`. The API listens on all interfaces. |
+| Scanner says **camera unavailable** | The Details line underneath names the cause. Reinstall from the APK URL above. |
+| Everything is broken | The panel alone still shows the whole flow: start a session, mark a student manually, close it. |
 
 ---
 
-## How the phone finds the laptop
+## The internet path (optional, disabled)
 
-The tunnel address changes every restart, so it is **not** baked into the app.
-`start-qrivo.ps1` publishes the current address to a fixed public document, and
-the app reads it at launch and re-reads it whenever a request fails. **You never
-rebuild the APK.**
+Not needed for the demo, and **disabled** because its scheduled task popped a
+console window every five minutes.
 
-    https://raw.githubusercontent.com/HekimSefkan/QRIVO/endpoint/endpoint.json
+```powershell
+schtasks /change /tn "QRIVO-Tunnel" /enable
+```
 
-If the phone says it cannot reach the server, run `.\check-qrivo.ps1` — the
-"Published address" line shows exactly what the phone will read.
+```powershell
+schtasks /change /tn "QRIVO-Tunnel" /disable
+```
 
-## Shutting down afterwards
+Both require an **Administrator** PowerShell.
+
+Cloudflare quick tunnels proved unreliable: measured 2026-09-08, roughly one in
+three never becomes reachable, and one that had served traffic for an hour was
+withdrawn mid-session. That is why the hotspot is the primary path.
+
+---
+
+## Shutting down
 
 ```powershell
 cd C:\Projects\QRIVO

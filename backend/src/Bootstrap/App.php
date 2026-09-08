@@ -44,6 +44,7 @@ final class App
         $this->loadEnvironment();
         $this->config           = new Config($this->basePath);
         $this->applyTimezone();
+        $this->assertProductionConfiguration();
         $this->logger           = new Logger($this->config);
         $this->exceptionHandler = new ExceptionHandler($this->logger);
         $this->db               = new Connection($this->config);
@@ -139,5 +140,52 @@ final class App
         }
 
         date_default_timezone_set($tz);
+    }
+
+    /**
+     * Refuse to boot with a production-unsafe configuration.
+     *
+     * FINAL_AUDIT F-4: `config/app.php` falls back to `*` when
+     * CORS_ALLOWED_ORIGINS is unset, which lets ANY origin make credentialed
+     * cross-site requests to the API. That is fine for local development and
+     * unacceptable in production, and until now it was only written down in a
+     * document -- nothing stopped a deployment shipping with the wildcard.
+     *
+     * This fails CLOSED and LOUDLY, at startup, before a single request is
+     * served. A misconfigured production deployment that refuses to start is a
+     * problem someone fixes in a minute; one that starts and quietly accepts
+     * every origin is a problem nobody notices.
+     *
+     * Only `APP_ENV=production` is gated. Local, testing and staging are
+     * untouched, so no developer workflow changes.
+     *
+     * @throws \RuntimeException when the configuration would be unsafe
+     */
+    private function assertProductionConfiguration(): void
+    {
+        if ($this->config->getString('app.env', 'local') !== 'production') {
+            return;
+        }
+
+        $raw = trim((string) ($_ENV['CORS_ALLOWED_ORIGINS'] ?? ''));
+
+        if ($raw === '') {
+            throw new \RuntimeException(
+                'Refusing to start: APP_ENV=production but CORS_ALLOWED_ORIGINS is not set. '
+                . 'Set it to the explicit origin(s) that may call this API, e.g. '
+                . 'CORS_ALLOWED_ORIGINS=https://qrivo.example.edu'
+            );
+        }
+
+        // A wildcard anywhere in the list defeats the whole list.
+        foreach (explode(',', $raw) as $origin) {
+            if (trim($origin) === '*') {
+                throw new \RuntimeException(
+                    'Refusing to start: APP_ENV=production but CORS_ALLOWED_ORIGINS contains "*". '
+                    . 'A wildcard lets any site issue credentialed requests to this API. '
+                    . 'List the exact origin(s) instead.'
+                );
+            }
+        }
     }
 }

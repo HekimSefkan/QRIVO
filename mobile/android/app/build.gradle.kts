@@ -71,6 +71,21 @@ android {
 
     buildTypes {
         release {
+            // R8 stays ON. The scanner failure was never minification itself but a
+            // too-narrow wildcard in mobile_scanner's consumer rules -- see
+            // proguard-rules.pro. Shrinking is worth keeping: it is what takes
+            // this APK from ~165 MB debug to ~63 MB release.
+            //
+            // -PqrivoNoShrink=true turns both off for ONE build, purely to
+            // isolate a suspected R8 problem. It is a diagnostic, never a fix.
+            val noShrink = (project.findProperty("qrivoNoShrink") as String?)?.toBoolean() ?: false
+            isMinifyEnabled = !noShrink
+            isShrinkResources = !noShrink
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+
             // Signed with the real release key when key.properties is available,
             // otherwise with the debug key so the build still succeeds.
             signingConfig = if (hasReleaseSigning) {
