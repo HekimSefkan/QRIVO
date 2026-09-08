@@ -112,6 +112,7 @@ student's row flips to **VAR / QR** with a timestamp within about 3 seconds.
 | Symptom | Do this |
 | --- | --- |
 | **MySQL DOWN** | `Start-Service QRIVOMySQL` in an **admin** PowerShell. Do **not** also open Laragon — two MySQL instances cannot share one data directory. |
+| **MySQL will not start** — "the service did not respond" | A stray `mysqld.exe` is still holding the data directory. `Stop-Process -Name mysqld -Force`, then `Start-Service QRIVOMySQL`. |
 | **API or Teacher panel DOWN** | `Restart-Service QRIVOApache` (admin). Log: `deploy\windows\logs\apache-error.log`. |
 | **Hotspot UNKNOWN** | The hotspot is off. Win+A → Mobile hotspot → on. |
 | **Firewall red** | Run `deploy\windows\install-autostart.ps1` as Administrator. |
