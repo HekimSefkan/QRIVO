@@ -161,6 +161,7 @@ with the hotspot on to confirm the phone can still reach the API.
 | Panel says **OUTSIDE_SCHEDULED_TIME** | You skipped step 2. Run `php scripts/seed.php`. |
 | Panel says **"Sunucuya ulaşılamadı"** | You are on `:8080`. Use `http://127.0.0.1:8000/panel/`. |
 | Phone cannot reach the server | Confirm it is on the hotspot, not mobile data. Test `http://192.168.137.1:8000/api/v1/health` in the phone's browser. |
+| **API is slow on the very first request after boot** (~3.5 s) | Normal and self-correcting: PHP's opcache is cold and it is MySQL's first connection. Measured 2026-09-09 on a real boot — first request 3542 ms, then 84–149 ms. If you want the jury's first click to be fast, load `http://127.0.0.1:8000/api/v1/health` once yourself while you are setting up. |
 | Phone says **"Your session expired"** | Normal after a long idle. Sign in again. |
 | Scanner says **camera unavailable** | The Details line underneath names the cause. Reinstall from the APK URL above. |
 | Everything is broken | The panel alone still shows the whole flow: start a session, mark a student manually, close it. |
@@ -189,6 +190,12 @@ reg add "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Power" /v Hiberbo
 Apache is also configured to **depend on** `QRIVOMySQL`, so Windows starts the
 database first and Apache waits for it, instead of answering 503 while MySQL is
 still coming up.
+
+**Verified on a real boot, 2026-09-09 12:04.** `LastBootUpTime` advanced, both
+services came up `Auto`/`Running` under `LocalSystem` with fresh PIDs (MySQL
+6172, Apache 10480 — the previous Apache had held PID 5708 for two days), and
+the API answered with nothing typed. `sc qc QRIVOApache` lists `Tcpip`, `Afd`
+and `QRIVOMySQL`.
 
 ---
 

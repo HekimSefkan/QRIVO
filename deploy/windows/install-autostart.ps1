@@ -217,12 +217,21 @@ if ($hiber -eq 0) {
 # why it is a separate script and not a branch of this one.
 Write-Host ""
 Write-Host "4/5  Tunnel (not installed - opt-in only)"
+# Cmdlets, NOT `schtasks ... 2>&1`. Under $ErrorActionPreference='Stop',
+# redirecting a native command's stderr wraps each line in an ErrorRecord and
+# raises a TERMINATING NativeCommandError. schtasks writes "ERROR: The system
+# cannot find the file specified." to stderr for a task that does not exist --
+# the normal case here -- so the redirected form aborted this whole script at
+# this line, and the firewall and adapter steps below never ran. Verified
+# 2026-09-09: install-autostart.ps1 completed steps 1-3 and silently stopped.
 foreach ($task in @('QRIVO-Tunnel','QRIVO-Ngrok')) {
-    schtasks /query /tn $task 2>&1 | Out-Null
-    if ($LASTEXITCODE -eq 0) {
-        schtasks /delete /tn $task /f 2>&1 | Out-Null
-        if ($LASTEXITCODE -eq 0) { Ok "removed leftover task $task" }
-        else { Warn "could not remove $task - delete it with: schtasks /delete /tn `"$task`" /f" }
+    if (Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue) {
+        try {
+            Unregister-ScheduledTask -TaskName $task -Confirm:$false -ErrorAction Stop
+            Ok "removed leftover task $task"
+        } catch {
+            Warn "could not remove $task - delete it with: schtasks /delete /tn `"$task`" /f"
+        }
     } else {
         Info "$task not present"
     }
