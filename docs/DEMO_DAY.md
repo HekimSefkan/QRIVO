@@ -153,7 +153,7 @@ with the hotspot on to confirm the phone can still reach the API.
 
 | Symptom | Do this |
 | --- | --- |
-| **MySQL DOWN** | `Start-Service QRIVOMySQL` in an **admin** PowerShell. Do **not** also open Laragon — two MySQL instances cannot share one data directory. |
+| **MySQL DOWN after "a reboot"** | Almost certainly **Windows Fast Startup**: with it on, *Shut down* + power on is a hibernate/resume, not a boot, so automatic services never start and come back in whatever state they were in. Fix it once (see below), or use **Restart**, which always does a real boot. Right now: `Start-Service QRIVOMySQL` in an **admin** PowerShell. Do **not** also open Laragon — two MySQL instances cannot share one data directory. |
 | **MySQL will not start** — "the service did not respond" | A **loose** `mysqld.exe` (from Laragon, or from an old manual start) is holding the data directory; MySQL will not open it twice. In an **admin** shell: `Stop-Process -Name mysqld -Force`, then `Start-Service QRIVOMySQL`. Check first with `Get-Service QRIVOMySQL` — if it already says `Running`, the loose process is not the problem. |
 | **API or Teacher panel DOWN** | `Restart-Service QRIVOApache` (admin). Log: `deploy\windows\logs\apache-error.log`. |
 | **Hotspot UNKNOWN** | The hotspot is off. Win+A → Mobile hotspot → on. |
@@ -164,6 +164,31 @@ with the hotspot on to confirm the phone can still reach the API.
 | Phone says **"Your session expired"** | Normal after a long idle. Sign in again. |
 | Scanner says **camera unavailable** | The Details line underneath names the cause. Reinstall from the APK URL above. |
 | Everything is broken | The panel alone still shows the whole flow: start a session, mark a student manually, close it. |
+
+---
+
+### Why "it did not start at boot" is usually not a service fault
+
+Measured on 2026-09-09, after a shutdown-and-power-on that looked like a reboot:
+`QRIVOMySQL` was Stopped and the API served 503, yet **MySQL's error log showed
+no failed start — no start attempt at all**, and there were no `7000`/`7023`/`7024`
+service-control events. `LastBootUpTime` had not moved and Apache's processes
+still held PIDs from two days earlier.
+
+The service did not fail. It was never asked to start, because there was no
+boot. Fast Startup hibernates session 0 — services included — and resumes it.
+Apache looked fine only because it had been running before; MySQL had not.
+
+`install-autostart.ps1` now turns Fast Startup off. To do it by hand, in an
+**Administrator** PowerShell:
+
+```powershell
+reg add "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Power" /v HiberbootEnabled /t REG_DWORD /d 0 /f
+```
+
+Apache is also configured to **depend on** `QRIVOMySQL`, so Windows starts the
+database first and Apache waits for it, instead of answering 503 while MySQL is
+still coming up.
 
 ---
 

@@ -78,7 +78,7 @@ if ($hotspotIp) {
     $reach = TryUrl "http://192.168.137.1:8000/api/v1/health"
     Report "Hotspot" $reach.ok `
         $(if ($reach.ok) { "192.168.137.1:8000 answering ($($reach.ms) ms) - phone can connect" } else { "192.168.137.1 exists but the API did not answer" }) `
-        "check the firewall rule: Get-NetFirewallRule -DisplayName 'QRIVO API 8000 (private)'"
+        "check the firewall rule: Get-NetFirewallRule -DisplayName 'QRIVO API 8000*'"
 } else {
     ReportUnknown "Hotspot" "not started (no 192.168.137.1 on this machine)" `
         "turn on Windows Mobile Hotspot if you want the offline demo path"
