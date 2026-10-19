@@ -17,6 +17,6 @@ This directory contains the authoritative project documentation.
 
 ## Source of Truth
 
-All documents in this directory are derived from [`ORIGINAL_SPECIFICATION.md`](../ORIGINAL_SPECIFICATION.md), which is the primary authoritative source provided by the user.
+All documents in this directory are derived from `ORIGINAL_SPECIFICATION.md` (not kept in this repository), which is the primary authoritative source provided by the user.
 
 If any conflict exists between these documents and `ORIGINAL_SPECIFICATION.md`, the original specification takes priority.

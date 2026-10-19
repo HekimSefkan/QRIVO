@@ -24,8 +24,8 @@ All security decisions are enforced **server-side**. The client is never trusted
 | Logging          | `monolog/monolog`        |
 | Env Loading      | `vlucas/phpdotenv`       |
 | Testing          | PHPUnit 11               |
-| QR Signing       | HMAC-SHA256 *(future)*   |
-| Password Hashing | Argon2id *(future)*      |
+| QR Signing       | HMAC-SHA256              |
+| Password Hashing | Argon2id                 |
 
 ---
 

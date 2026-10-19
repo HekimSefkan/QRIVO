@@ -31,9 +31,9 @@ QRIVO treats attendance as a **security-critical transaction**, not a simple for
 
 ## Development Status
 
-> **Phase: Project Initialization**
->
-> The project is in its initial documentation and scaffolding phase. No application code has been implemented yet. The project specification, architecture rules, attendance algorithm, and security rules are being documented as the authoritative foundation for all future development.
+> The backend API, the teacher web panel and the student mobile app are implemented and tested; CI runs PHPUnit, a MySQL 8 smoke test and the Flutter tests on every push.
+
+To run it locally (Docker or native PHP + MySQL), see [`docs/RUNBOOK.md`](docs/RUNBOOK.md).
 
 ---
 
